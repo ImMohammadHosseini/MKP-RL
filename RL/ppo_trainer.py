@@ -22,7 +22,6 @@ class PPOTrainer(BaseTrainer):
         model: PreTrainedModel = None,
         #ref_model: PreTrainedModelWrapper = None,
         #tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast] = None,
-        dataset: Optional[Union[torch.utils.data.Dataset, Dataset]] = None,
         optimizer: Optional[torch.optim.Optimizer] = None,
         data_collator=None,
         num_shared_layers: Optional[int] = None,
