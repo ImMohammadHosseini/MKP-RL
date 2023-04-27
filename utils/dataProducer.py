@@ -5,7 +5,7 @@
 import numpy as np
 
 
-def multipleKnapSack (M:int, N:int):
+def multipleKnapSackData (M:int, N:int):
     """
     multipleKnapSack, one capacities for each knapsack, one weight for each instance
     set a random dataset for M knapsack and N instance
