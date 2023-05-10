@@ -33,6 +33,7 @@ class TransformerKnapsackConfig (object):
         self.knapsack_obs_size = knapsack_obs_size
         self.input_dim = problem_dim + 1
         self.output_dim = 2 * problem_dim
+        self.max_length = self.inst_obs_size + self.knapsack_obs_size + 3
         self.nhead = nhead
         self.batch_first = batch_first
         self.d_hid = d_hid
