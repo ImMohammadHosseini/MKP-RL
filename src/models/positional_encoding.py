@@ -12,7 +12,7 @@ class PositionalEncoding(nn.Module):
         self.max_length = max_length
         self.positionalEncoding = self.build_positional_encoding()
         
-    def build_positional_encoding (self, ):
+    def build_positional_encoding (self):
         positional_encoding = np.zeros((self.max_length, self.embed_dimension))
         for pos in range(self.max_length):
             for i in range(0, self.embed_dimension, 2):

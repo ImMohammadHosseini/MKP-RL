@@ -86,8 +86,8 @@ class TransformerKnapsack (nn.Module):
         decoder_mask:torch.tensor,
     ):
         obs_embeding = self.embed(obs_tensor)
-        positional = self.position_encode(obs_embeding)#TODO ADD ARGUMENT
-        return self.decoder(prompt, self.encoder(obs_tensor, encoder_mask), 
+        positional = self.position_encode(obs_embeding)
+        return self.decoder(prompt, self.encoder(positional, encoder_mask), 
                             decoder_mask, encoder_mask)
         
     def pad_left(self, sequence, final_length, padding_token):
