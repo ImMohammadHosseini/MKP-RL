@@ -4,6 +4,7 @@
 """
 import optparse
 import torch
+from RL.src.core import LengthSampler
 from data.dataProducer import multipleKnapSackData, multiObjectiveDimentional
 from configs.ppo_configs import PPOConfig
 from configs.transformers_model_configs import TransformerKnapsackConfig
@@ -45,7 +46,7 @@ def dataInitializer ():
     return statePrepare
     
 def rlInitializer (statePrepare):
-    ppoConfig = PPOConfig()
+    ppoConfig = PPOConfig()#TODO change config if 
     modelConfig = TransformerKnapsackConfig()#TODO check config file
     model = TransformerKnapsack(modelConfig)
     env = KnapsackAssignmentEnv(ppoConfig, INFOS, statePrepare, DEVICE)
@@ -53,11 +54,18 @@ def rlInitializer (statePrepare):
     
     return env, ppoTrainer
 
-def train (env, ppoTrainer):
-    pass
+def train (env, ppoTrainer, outputLengthSampler):
+    obs_tensor = env.reset()
+    for epoch in range(2000):#TODO CHECK THE EPOCH
+        responce_tensors = ppoTrainer.generate( 
+            obs_tensor, return_prompt=False, length_sampler=outputLengthSampler
+        )
+        obs_tensor, rewardList, done, _ = env.step(responce_tensors)
+        
+        stats = ppoTrainer.step()#TODO 
 
 if __name__ == '__main__':
     statePrepare = dataInitializer()
     env, ppoTrainer = rlInitializer(statePrepare)
-    
-    
+    outputLengthSampler = LengthSampler(KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE)
+    train(env, ppoTrainer, outputLengthSampler)
