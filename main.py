@@ -4,10 +4,11 @@
 """
 import optparse
 import torch
-from data.dataProducer import multipleKnapSackData
-from data.prepare import getSituations, getPrompt
+from data.dataProducer import multipleKnapSackData, multiObjectiveDimentional
 from configs.ppo_configs import PPOConfig
+from configs.transformers_model_configs import TransformerKnapsackConfig
 from src.models.transformer import TransformerKnapsack
+from src.data_structure.state_prepare import StatePrepare
 from RL.src.env import KnapsackAssignmentEnv
 from RL.ppo_trainer import PPOTrainer
 
@@ -19,50 +20,44 @@ parser.add_option("-V", "--variation", action="store", dest="var",
                   help="variation is multipleKnapsack, multi_dimentional, \
                       multiObjectiveDimentional")
 parser.add_option("-D", "--dim", action="store", dest="dimention", default=5)
-parser.add_option("-M", "--knapsaks", action="store", dest="kps", default=600)
+parser.add_option("-M", "--knapsaks", action="store", dest="kps", default=60)
 parser.add_option("-N", "--instances", action="store", dest="instances", 
-                  default=10000)
+                  default=3000)
 opts, args = parser.parse_args()
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-INFOS = {'CAP_LOW':5, 'CAP_HIGH':150, 'WEIGHT_LOW':2, 'WEIGHT_HIGH':150,
+INFOS = {'CAP_LOW':150, 'CAP_HIGH':400, 'WEIGHT_LOW':10, 'WEIGHT_HIGH':100,
          'VALUE_LOW':1, 'VALUE_HIGH':200}
-KNAPSACK_BATCH_SIZE = 60
-INSTANCE_BATCH_SIZE = 3 * KNAPSACK_BATCH_SIZE
 
-def datainitializer ():
+KNAPSACK_OBS_SIZE = opts.kps
+INSTANCE_OBS_SIZE = 2 * KNAPSACK_OBS_SIZE
+
+def dataInitializer ():
     if opts.var == 'multipleKnapsack':
        c, w, v = multipleKnapSackData(opts.kps, opts.instances, INFOS)
     elif opts.var == 'multipleKnapsack':
         pass
     elif opts.var == 'multiObjectiveDimentional':
-        c, w, v = multipleKnapSackData(opts.dim, opts.kps, opts.instances, INFOS)
+        c, w, v = multiObjectiveDimentional(opts.dim, opts.kps, opts.instances, INFOS)
     
-    situations = getSituations(c, w, opts.dim)
-    prompt = getPrompt(situations)
-    return situations, prompt, (c, w, v)
+    statePrepare = StatePrepare(c, w, v, KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE)
     
-def rlinit ():
-    config = PPOConfig(
-        model_name=script_args.model_name,
-        learning_rate=script_args.learning_rate,
-        log_with=script_args.log_with,
-        mini_batch_size=script_args.mini_batch_size,
-        batch_size=script_args.batch_size,
-        gradient_accumulation_steps=script_args.gradient_accumulation_steps,
-        early_stopping=script_args.early_stopping,
-        target_kl=script_args.target_kl,
-    )   
-    model = TransformerKnapsack
-    env = KnapsackAssignmentEnv
-    ppo_trainer = PPOTrainer()
+    return statePrepare
     
-    return env, ppo_trainer
+def rlInitializer (statePrepare):
+    ppoConfig = PPOConfig()
+    modelConfig = TransformerKnapsackConfig()#TODO check config file
+    model = TransformerKnapsack(modelConfig)
+    env = KnapsackAssignmentEnv(ppoConfig, INFOS, statePrepare, DEVICE)
+    ppoTrainer = PPOTrainer(ppoConfig, model,)
+    
+    return env, ppoTrainer
 
-def train ():
+def train (env, ppoTrainer):
     pass
 
 if __name__ == '__main__':
-    situations, prompt, datas = datainitializer ()
+    statePrepare = dataInitializer()
+    env, ppoTrainer = rlInitializer(statePrepare)
     
     
