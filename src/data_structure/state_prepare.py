@@ -59,9 +59,6 @@ class ExternalStatePrepare:
         
         return self.stateCaps, self.stateWeightValues
     
-    def pad_left(self, sequence, final_length, padding_token):
-        return [padding_token] * (final_length - len(sequence)) + sequence
-    
     def is_terminated (self):
         return True if self.remainInstanceWeights == None or \
             len(self.remainInstanceWeights) == 0 else False
