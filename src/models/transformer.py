@@ -46,13 +46,13 @@ class TransformerKnapsack (nn.Module):
     
     def generate (
         self,
-        obs_tensor:torch.tensor,
-        encoder_mask:torch.tensor,
+        external_obs:torch.tensor,
         max_len_generate:int,
         
     ):
         ACT = [0]*self.config.input_dim
-        obs_tensor = obs_tensor.unsqueeze(dim=0)
+        encoder_mask = torch.ones_like(external_obs[:,:,0])
+        encoder_mask[torch.all(external_obs == torch.tensor(ACT), dim=2)] = 0
         start_tokens = [ACT]
         prompt_tensor = torch.tensor(
             self.pad_left(
@@ -67,27 +67,27 @@ class TransformerKnapsack (nn.Module):
         out = prompt_tensor
         
         for _ in range(max_len_generate):
-            x = out[:,-(self.config.max_length-1):,:]
+            internal_obs = out[:,-(self.config.max_length-1):,:]
             
-            decoder_mask = torch.ones_like(x[:,:,0])
-            decoder_mask[torch.all(x == torch.tensor(ACT), dim=2)] = 0
+            decoder_mask = torch.ones_like(internal_obs[:,:,0])
+            decoder_mask[torch.all(internal_obs == torch.tensor(ACT), dim=2)] = 0
             
-            next_ = self.forward(obs_tensor, encoder_mask, x, 
-                                        decoder_mask)
+            next_ = self.forward(external_obs, encoder_mask, internal_obs, 
+                                 decoder_mask)
             out = torch.cat([out, next_], dim=1)
             
         return out[0]
      
     def forward (
         self,
-        obs_tensor:torch.tensor,
+        external_obs:torch.tensor,
         encoder_mask:torch.tensor,
-        prompt:torch.tensor,
+        internal_obs:torch.tensor,
         decoder_mask:torch.tensor,
     ):
-        obs_embeding = self.embed(obs_tensor)
+        obs_embeding = self.embed(external_obs)
         positional = self.position_encode(obs_embeding)
-        return self.decoder(prompt, self.encoder(positional, encoder_mask), 
+        return self.decoder(internal_obs, self.encoder(positional, encoder_mask), 
                             decoder_mask, encoder_mask)
         
     def pad_left(self, sequence, final_length, padding_token):
