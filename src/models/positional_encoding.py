@@ -8,6 +8,7 @@ import numpy as np
 
 class PositionalEncoding(nn.Module):
     def __init__(self, embed_dimension, max_length):
+        super().__init__()
         self.embed_dimension = embed_dimension
         self.max_length = max_length
         self.positionalEncoding = self.build_positional_encoding()
