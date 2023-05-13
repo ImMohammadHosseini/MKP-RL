@@ -5,13 +5,12 @@
 import torch
 import numpy as np
 from tensordict.tensordict import TensorDict, TensorDictBase
-from accelerate import Accelerator
 from typing import Callable, List, Optional, Union
 from datasets import Dataset
 
 import gymnasium as gym
 from gymnasium import spaces
-
+from src.data_structure.state_prepare import ExternalStatePrepare
 from torchrl.envs import (
     EnvBase,
 )
@@ -21,12 +20,8 @@ class KnapsackAssignmentEnv (gym.Env):
         self,
         config,
         info:dict,
-        knapsack_batch_size : int,
-        instance_batch_size : int,
+        state_dataClass: ExternalStatePrepare,
         device = "cpu",
-        #dataset: Union[torch.utils.data.Dataset, Dataset] = None,
-        knapsack: Union[torch.utils.data.Dataset, Dataset] = None,
-        inst_value: Union[torch.utils.data.Dataset, Dataset] = None,
     ):
         '''self.accelerator = Accelerator(
             log_with=config.log_with,
@@ -47,90 +42,85 @@ class KnapsackAssignmentEnv (gym.Env):
                                        high=np.array(
                     [info['CAP_HIGH'], info['CAP_HIGH'], info['CAP_HIGH'],
                      info['CAP_HIGH'], info['CAP_HIGH']]), 
-                                       shape=(2,5), dtype=int),
-                "instanc_value": spaces.Box(low=np.array(
+                                       shape=(state_dataClass.knapsackObsSize,
+                                              config.dim), dtype=int),
+                "instance_value": spaces.Box(low=np.array(
                     [info['WEIGHT_LOW'], info['WEIGHT_LOW'], info['WEIGHT_LOW'], 
                      info['WEIGHT_LOW'], info['WEIGHT_LOW'], info['VALUE_LOW']]), 
                                        high=np.array(
                     [info['WEIGHT_HIGH'], info['WEIGHT_HIGH'], info['WEIGHT_HIGH'],
                      info['WEIGHT_HIGH'], info['WEIGHT_HIGH'], info['VALUE_HIGH']]), 
-                                       shape=(2,6), dtype=int),
+                                       shape=(state_dataClass.instanceObsSize,
+                                              config.dim), dtype=int),
             }
         )
-        self.action_space = spaces.Box(low=np.array([[0,0]]*len(knapsack)), 
-                                       high=np.array([[len(knapsack), 
-                                                       len(inst_value)]]*len(knapsack)), 
+        self.action_space = spaces.Box(low=np.array([[0,0]] * \
+                                                    state_dataClass.knapsackObsSize), 
+                                       high=np.array([[state_dataClass.knapsackObsSize, 
+                                                       state_dataClass.instanceObsSize]] * \
+                                                     state_dataClass.knapsackObsSize), 
                                        dtype=int
         )
         
-        #self.input_spec 
-        #self.reward_spec 
-        #self.batch_size 
-        
         super().__init__()
-        
+        self.config = config
         self.device = device
-        self.knapsack_batch_size = knapsack_batch_size
-        self.instance_batch_size = instance_batch_size
-        self.knapsack = knapsack
-        self.inst_value = inst_value
-        #self.values = values
-        
+        self.statePrepare = state_dataClass
         
         #self.dataset = dataset
         #self._signature_columns = None
         #self.dataloader = self.prepare_dataloader(self.dataset)
         
-        self.current_step = 0
+    
+    def _get_obs(self) -> dict:
+        stateCaps, stateWeightValues = self.statePrepare.getObservation()
         
-    def prepare_dataloader(
-        self, 
-        dataset: Union[torch.utils.data.Dataset, Dataset],
-        batch_size: int
-    ):
-        dataloader = torch.utils.data.DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=True,
-        )
-        return dataloader   
-    
-    def _get_obs(self):
-        return {"knapsack": self._agent_location, 
-                "instanc_value": self._target_location}
-    
+        return {"knapsack": stateCaps, "instance_value": stateWeightValues}
+        
     def _get_info(self):
-        pass
-    
-    def reset (self, tensordict: TensorDictBase, **kwargs) -> TensorDictBase: 
+        return ""
+        
+        
+    def reset (self): 
         #super().reset(seed=seed)
-        observation = self._get_obs()
+        self.statePrepare.reset()
+        externalObservation = self._get_obs()
+        ACT = np.zeros((1,self.config.dim))
+        externalObservation = np.append(ACT, np.append(np.append(externalObservation[
+            "instance_value"], ACT, axis=0), np.append(externalObservation["knapsack"], 
+                                                       ACT, axis=0),axis=0),
+                                                       axis=0)
+        info = self._get_info()
+        externalObservation = torch.tensor(externalObservation).unsqueeze(dim=0)        
+        return externalObservation, info
     
-    def step (
-        self,
-        tensordict: TensorDictBase,
-    ) -> TensorDictBase:
-        reward = reward_function()
-        out = TensorDict(
-            {
-                "next": {
-                    "th": new_th,
-                    "thdot": new_thdot,
-                    "params": tensordict["params"],
-                    "reward": reward,
-                    "done": done,
-                }
-            },
-            tensordict.shape,
-        )
-        return out
+    def step (self, action):
+        
+        terminated = self.statePrepare.is_terminated()
+        
+        reward = self.reward_function(action)
+        
+        externalObservation = self._get_obs()
+        ACT = np.zeros((1,self.config.dim))
+        externalObservation = np.append(ACT, np.append(np.append(externalObservation[
+            "instance_value"], ACT, axis=0), np.append(externalObservation["knapsack"], 
+                                                       ACT, axis=0),axis=0),
+                                                       axis=0)
+        externalObservation = torch.tensor(externalObservation).unsqueeze(dim=0)
+                                                       
+                                                       
+        info = self._get_info()
+        
+        return externalObservation, reward, terminated, info
     
-    def reward_function (self,d):
+    def response_decode (self, responce):
         pass
     
-    #def _set_seed (self, seed: Optional[int]):
-    #    rng = torch.manual_seed(seed)
-    #    self.rng = rng
+    def reward_function (self, action):
+        pass
     
-    #def rollout (self):
-    #    pass
+    
+    
+    
+    
+    
