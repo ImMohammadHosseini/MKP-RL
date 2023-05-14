@@ -81,7 +81,8 @@ class TransformerKnapsack (nn.Module):
             next_ = self.forward(external_obs, encoder_mask_sqr, internal_obs, 
                                  decoder_mask, memory_mask)
             out = torch.cat([out, torch.mean(next_, 1).unsqueeze(dim=0)], dim=1)
-        out = torch.cat([out[0][0].unsqueeze(dim=0), out[0][max_len_generate+1:]], dim=0) 
+        out = out[0][max_len_generate+1:]
+        #TODO check transformer encoder and change in mean
         return out
      
     def forward (
