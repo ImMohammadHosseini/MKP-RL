@@ -11,9 +11,19 @@ from typing import Optional
 @dataclass
 class PPOConfig(object):
     """
-    this implementation is inspired by: https://github.com/lvwerra/trl/blob/main/trl/trainer/ppo_config.py
     Configuration class for PPOTrainer
     """
+    def __init__ (
+        self,
+        generat_link_number: int = 100,
+        internal_batch: int = 20,
+        
+    ):
+        assert generat_link_number >= internal_batch
+        self.generat_link_number = generat_link_number #number of links generated in on external observation
+        self.internal_batch = internal_batch #number of links generated to optimize model
+        
+        
     steps: Optional[int] = field(default=20000, metadata={"help": "Number of training steps"})
     learning_rate: Optional[float] = field(default=1e-5, metadata={"help": "Adam learning rate"})
     adap_kl_ctrl: Optional[bool] = field(default=True, metadata={"help": "Use adaptive KL control, otherwise linear"})
@@ -32,7 +42,7 @@ class PPOConfig(object):
         default=0.2, metadata={"help": "Range for clipping values in loss calculation"}
     )
     vf_coef: Optional[float] = field(default=0.1, metadata={"help": "Scaling factor for value loss"})
-    batch_size: Optional[int] = field(default=1, metadata={"help": "Number of samples per optimisation step"})
+    batch_size: Optional[int] = field(default=10, metadata={"help": "Number of samples per optimisation step"})
     forward_batch_size: Optional[int] = field(
         default=1,
         metadata={"help": "Number of samples forward passed through model at a time"},
