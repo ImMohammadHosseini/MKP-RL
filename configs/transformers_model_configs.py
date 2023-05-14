@@ -11,8 +11,8 @@ class TransformerKnapsackConfig (object):
 
     def __init__(
         self,
-        inst_obs_size: int = 120,
-        knapsack_obs_size: int = 60,
+        inst_obs_size: int,
+        knapsack_obs_size: int,
         problem_dim: int = 5,
         nhead: int = 5,
         d_hid: int = 16,
@@ -24,6 +24,7 @@ class TransformerKnapsackConfig (object):
     ) -> None:
         self.inst_obs_size = inst_obs_size
         self.knapsack_obs_size = knapsack_obs_size
+        self.problem_dim = problem_dim
         self.input_dim = problem_dim + 1
         self.output_dim = 2 * problem_dim
         self.max_length = self.inst_obs_size + self.knapsack_obs_size + 3
