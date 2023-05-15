@@ -59,6 +59,15 @@ class ExternalStatePrepare:
         
         return self.stateCaps, self.stateWeightValues
     
+    def getKnapsack (self, index) -> Knapsack:
+        return self.knapsacks[index]
+    
+    def getObservedInstWeight(self, index):
+        return self.stateWeightValues[index][:-1]
+    
+    def getObservedInstValue(self, index):
+        return self.stateWeightValues[index][-1]
+    
     def is_terminated (self):
         return True if self.remainInstanceWeights == None or \
             len(self.remainInstanceWeights) == 0 else False
