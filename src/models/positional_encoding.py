@@ -7,6 +7,10 @@ from torch import nn
 import numpy as np
 
 class PositionalEncoding(nn.Module):
+    """
+    this implementation is inspired by: 
+        https://wingedsheep.com/building-a-language-model/
+    """
     def __init__(self, embed_dimension, max_length):
         super().__init__()
         self.embed_dimension = embed_dimension
@@ -22,4 +26,4 @@ class PositionalEncoding(nn.Module):
         return torch.from_numpy(positional_encoding).float()
     
     def forward (self, x):
-        return x + self.positionalEncoding[:x.size(0), :]
+        return x + self.positionalEncoding[:x.size(1), :]
