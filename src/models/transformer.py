@@ -53,7 +53,8 @@ class TransformerKnapsack (nn.Module):
         encoder_ACT = [0]*self.config.input_dim
         encoder_mask = torch.ones_like(external_obs[:,:,0])
         encoder_mask[torch.all(external_obs == torch.tensor(encoder_ACT), dim=2)] = 0
-
+        encoder_mask = torch.cat([encoder_mask]*self.config.nhead , 0)
+        
         decoder_ACT = [0]*self.config.output_dim
         start_tokens = [decoder_ACT]
         prompt_tensor = torch.tensor(
@@ -65,25 +66,38 @@ class TransformerKnapsack (nn.Module):
             dtype=torch.long
         )
         prompt_tensor = prompt_tensor.unsqueeze(dim=0)
+        prompt_tensor = torch.cat([prompt_tensor]*external_obs.size()[0], 0)
         
         out = prompt_tensor
         
+        internalObservs = []
         for _ in range(max_len_generate):
             internal_obs = out[:,-(max_len_generate+1):,:]
-            
+            internalObservs.append(internal_obs)
+
             decoder_mask = torch.ones_like(internal_obs[:,:,0])
             decoder_mask[torch.all(internal_obs == torch.tensor(decoder_ACT), dim=2)] = 0
-
-            memory_mask = torch.matmul(decoder_mask.T.long(), encoder_mask.long())
-            encoder_mask_sqr = torch.matmul(encoder_mask.T, encoder_mask)
-            decoder_mask = torch.matmul(decoder_mask.T, decoder_mask)
-
+            decoder_mask = torch.cat([decoder_mask]*self.config.nhead , 0)
+            
+            memory_mask = torch.matmul(decoder_mask.unsqueeze(2).long(), 
+                                       encoder_mask.unsqueeze(1).long())
+            #torch.matmul(decoder_mask.T.long(), encoder_mask.long())
+            encoder_mask_sqr = torch.matmul(encoder_mask.unsqueeze(2), 
+                                            encoder_mask.unsqueeze(1))
+            #torch.matmul(encoder_mask.T, encoder_mask)
+            decoder_mask = torch.matmul(decoder_mask.unsqueeze(2), 
+                                        decoder_mask.unsqueeze(1))
+            #torch.matmul(decoder_mask.T, decoder_mask)
+            
             next_ = self.forward(external_obs, encoder_mask_sqr, internal_obs, 
                                  decoder_mask, memory_mask)
-            out = torch.cat([out, torch.mean(next_, 1).unsqueeze(dim=0)], dim=1)
+            print(out.size())
+            print(next_.size())
+            print(torch.mean(next_, 1).unsqueeze(1).size())
+            out = torch.cat([out, torch.mean(next_, 1).unsqueeze(1)], dim=1)
         out = out[0][max_len_generate+1:]
         #TODO check transformer encoder and change in mean
-        return out
+        return out, internalObservs
      
     def forward (
         self,
