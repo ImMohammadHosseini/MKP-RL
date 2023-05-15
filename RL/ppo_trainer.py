@@ -127,11 +127,15 @@ class PPOTrainer(BaseTrainer):
                                  decoder_mask, memory_mask)
             out = torch.cat([out, torch.mean(next_, 1).unsqueeze(1)], dim=1)
             
-        return out[0][self.config.internal_batch+1:], \
+        return out[self.config.internal_batch+1:].squeeze(), \
             torch.cat(internalObservs, 0), \
                 out[:,-(self.config.internal_batch+1):,:]
-    
-    def _choose_actions (self, stepGenerate, externalObservation):
+            
+    def _make_distribution (
+        self, 
+        stepGenerate: torch.tensor, 
+        externalObservation: torch.tensor,
+    ):
         generatedInstance = stepGenerate[:, :self.model.config.problem_dim].cpu().detach().numpy()
         insts = externalObservation[0][1:self.instance_observation_size+1, :-1].cpu().detach().numpy()
         insts = np.append(insts, np.array([[-1]*self.model.config.problem_dim]),0)
@@ -151,6 +155,15 @@ class PPOTrainer(BaseTrainer):
         ks_dist = self.softmax(torch.tensor(ks_cosin_sim))
         ks_dist = Categorical(ks_dist)
         
+        return inst_dist, ks_dist
+    
+    def _choose_actions (
+        self, 
+        stepGenerate: torch.tensor, 
+        externalObservation: torch.tensor,
+    ):
+        inst_dist, ks_dist = self._make_distribution(stepGenerate, 
+                                                     externalObservation)
         inst_act = inst_dist.sample()
         ks_act = ks_dist.sample()
         inst_log_probs = inst_dist.log_prob(inst_act)
@@ -159,8 +172,6 @@ class PPOTrainer(BaseTrainer):
         acts = torch.cat([inst_act.unsqueeze(dim=1),
                           ks_act.unsqueeze(dim=1)],dim=1)
         log_probs = inst_log_probs + ks_log_probs
-
-        
         return acts, log_probs
     
     def _internal_reward (
@@ -248,16 +259,18 @@ class PPOTrainer(BaseTrainer):
             advantage[t] = a_t
             
         for batch in batches:
-            eo = external_obs[batch]
+            eo = external_obs[batch]#TODO change in observed and knapsack
             io = internal_obs[batch]
             olp = old_log_probs[batch]
             acts = actions[batch]
             
-            #dist = self.actor(states)#TODO change
-            
+            stepGenerate, _, _ = self.generate_step(eo, io, 1)
+            inst_dist, ks_dist = self._make_distribution(stepGenerate, 
+                                                         eo)
             critic_value = self.critic(eo, io)
             critic_value = torch.squeeze(critic_value)
-        
+            
+            #new_probs = dist.log_prob(actions) #TODO we are here
         pass
         
     def _early_stop(self, policykl):
