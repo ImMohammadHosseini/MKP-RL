@@ -10,19 +10,19 @@ from typing import Dict, List
 class Knapsack:
     knapsackId: int
     capacities: np.ndarray
-    instanceWeight: np.ndarray
-    instanceValue: np.ndarray
+    instanceWeights: np.ndarray
+    instanceValues: np.ndarray
     
     def __init__(self, kid: int, capacities: np.ndarray):
         self.knapsackId = kid
         self.capacities = capacities
     
     def reset (self) -> None:
-        self.instanceWeight = np.array([])
-        self.instanceValue = np.array([])
+        self.instanceWeights = np.array([])
+        self.instanceValues = np.array([])
         self.resetExpectedCap()
         
-    def getKnapsackRemainCap(self) -> np.ndarray:
+    def getRemainCap(self) -> np.ndarray:
         fullPart = np.sum(self.instanceWeight, axis=0)
         return self.capacities - fullPart
     
@@ -33,12 +33,12 @@ class Knapsack:
         self.expectedCap =- newCap
         
     def resetExpectedCap (self):
-        self.expectedCap = self.capacities
+        self.expectedCap = self.getRemainCap()
         
-    def addInstance(self) -> None:
-        pass
-    
-    
+    def addInstance(self, instWeight, instValue) -> None:
+        self.instanceValues = np.append(self.instanceValues, instValue, axis=0)
+        self.instanceWeights = np.append(self.instanceWeights, instWeight, axis=0)
+        
     def getKnapsackCap (self):
         return self.capacities
     
