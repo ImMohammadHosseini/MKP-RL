@@ -38,7 +38,7 @@ class Knapsack:
         self.instanceValues = np.append(self.instanceValues, instValue, axis=0)
         self.instanceWeights = np.append(self.instanceWeights, instWeight, axis=0)
         
-    def getKnapsackCap (self):
+    def getCap (self):
         return self.capacities
     
     def getValues (self) -> int:

@@ -53,6 +53,7 @@ class KnapsackAssignmentEnv (gym.Env):
         super().__init__()
         self.device = device
         self.statePrepare = state_dataClass
+        #self.statePrepare.normalizeData(info['CAP_HIGH'], info['VALUE_HIGH'])
         self.no_change_long = no_change_long
         self.no_change = 0
     
@@ -89,7 +90,6 @@ class KnapsackAssignmentEnv (gym.Env):
             externalReward = self.reward_function(actions)
         else: externalReward = 0
         
-        
         externalObservation = self._get_obs()
         ACT = np.zeros((1,self.dim))
         externalObservation = np.append(ACT, np.append(np.append(externalObservation[
@@ -99,8 +99,6 @@ class KnapsackAssignmentEnv (gym.Env):
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device).unsqueeze(dim=0)
-                                                       
-                                                       
         info = self._get_info()
         
         return externalObservation, externalReward, terminated, info

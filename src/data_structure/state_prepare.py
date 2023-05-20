@@ -25,7 +25,12 @@ class ExternalStatePrepare:
         
         self.knapsackObsSize = k_obs_size
         self.instanceObsSize = i_obs_size
-        
+    
+    def normalizeData (self, maxCap, maxValue):
+        self.weights = self.weights / maxCap
+        self.values = self.values / maxValue
+        for k in self.knapsacks: k.capacities = k.getCap() / maxCap
+            
     def reset (self) -> None:
         self.remainInstanceWeights = self.weights
         self.remainInstanceValues = self.values
