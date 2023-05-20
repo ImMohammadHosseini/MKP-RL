@@ -3,8 +3,7 @@
 
 """
 import numpy as np
-from dataclasses import asdict, dataclass
-from typing import Dict, List
+from dataclasses import dataclass
 
 @dataclass
 class Knapsack:
@@ -23,7 +22,7 @@ class Knapsack:
         self.resetExpectedCap()
         
     def getRemainCap(self) -> np.ndarray:
-        fullPart = np.sum(self.instanceWeight, axis=0)
+        fullPart = np.sum(self.instanceWeights, axis=0)
         return self.capacities - fullPart
     
     def getExpectedCap (self):

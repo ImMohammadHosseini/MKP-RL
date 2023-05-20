@@ -13,7 +13,7 @@ class TransformerKnapsackConfig (object):
         self,
         inst_obs_size: int,
         knapsack_obs_size: int,
-        problem_dim: int = 5,
+        problem_dim: int,
         nhead: int = 5,
         d_hid: int = 16,
         num_encoder_layers: int = 2,

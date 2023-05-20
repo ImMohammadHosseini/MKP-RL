@@ -3,9 +3,8 @@
 
 """
 import numpy as np
-from torch import tensor
-from dataclasses import asdict, dataclass
-from typing import Dict, List
+from dataclasses import dataclass
+from typing import List
 from .knapsack import Knapsack
 
 @dataclass
@@ -36,7 +35,7 @@ class ExternalStatePrepare:
         self.knapsacks = [Knapsack(i, c) for i, c in enumerate(allCapacities)]
      
     def getObservation (self) -> np.ndarray:
-        self.stateCaps = np.array([k.getKnapsackRemainCap() \
+        self.stateCaps = np.array([k.getRemainCap() \
                                    for k in self.knapsacks])
         self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps),1)), 
                                    axis=1)
