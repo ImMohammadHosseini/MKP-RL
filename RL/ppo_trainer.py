@@ -7,7 +7,6 @@ import numpy as np
 from torch.optim import Adam
 from typing import List, Optional
 
-from utils.import_utils import is_torch_greater_2_0
 from .src.core import (
     set_seed,  
 )
@@ -28,10 +27,10 @@ class PPOTrainer(BaseTrainer):
         self,
         info: List,
         config: Optional[PPOConfig] = None,
-        acter_model: Optional[torch.nn.Module] = None,
+        actor_model: Optional[torch.nn.Module] = None,
         critic_model: Optional[torch.nn.Module] = None,
         device: torch.device = torch.device("cpu"),
-        acter_optimizer: Optional[torch.optim.Optimizer] = None,
+        actor_optimizer: Optional[torch.optim.Optimizer] = None,
         critic_optimizer: Optional[torch.optim.Optimizer] = None,
         data_collator=None,
         num_shared_layers: Optional[int] = None,
@@ -52,15 +51,15 @@ class PPOTrainer(BaseTrainer):
             self.env = env'''
         #self.accelerator
         
-        self.acter_model = acter_model
+        self.actor_model = actor_model
         self.critic_model = critic_model
         
-        if acter_optimizer is None:
-            self.acter_optimizer = Adam(
-                filter(lambda p: p.requires_grad, self.acter_model.parameters()), lr=self.config.acter_lr
+        if actor_optimizer is None:
+            self.actor_optimizer = Adam(
+                filter(lambda p: p.requires_grad, self.actor_model.parameters()), lr=self.config.actor_lr
             )
         else:
-            self.acter_optimizer = acter_optimizer
+            self.actor_optimizer = actor_optimizer
         
         if critic_optimizer is None:
             self.critic_optimizer = Adam(
@@ -78,16 +77,16 @@ class PPOTrainer(BaseTrainer):
     ):
         if max_tokens_to_generate is None:
             max_tokens_to_generate = self.config.internal_batch
-        encoder_ACT = [0]*self.acter_model.config.input_dim
+        encoder_ACT = [0]*self.actor_model.config.input_dim
         encoder_mask = torch.ones_like(external_obs[:,:,0])
         encoder_mask[torch.all(external_obs == torch.tensor(encoder_ACT), dim=2)] = 0
-        encoder_mask = torch.cat([encoder_mask]*self.acter_model.config.nhead , 0)
+        encoder_mask = torch.cat([encoder_mask]*self.actor_model.config.nhead , 0)
 
-        decoder_ACT = [0]*self.acter_model.config.output_dim
+        decoder_ACT = [0]*self.actor_model.config.output_dim
         if promp_tensor == None:
             start_tokens = [decoder_ACT]
             prompt_tensor = torch.tensor(
-                self.acter_model.pad_left(
+                self.actor_model.pad_left(
                     sequence=start_tokens,
                     final_length=self.config.internal_batch + 1,
                     padding_token=decoder_ACT
@@ -114,7 +113,7 @@ class PPOTrainer(BaseTrainer):
             decoder_mask = torch.matmul(decoder_mask.unsqueeze(2), 
                                         decoder_mask.unsqueeze(1))
 
-            next_ = self.acter_model(external_obs, encoder_mask_sqr, internal_obs, 
+            next_ = self.actor_model(external_obs, encoder_mask_sqr, internal_obs, 
                                      decoder_mask, memory_mask)
             out = torch.cat([out, torch.mean(next_, 1).unsqueeze(1)], dim=1)
             
@@ -127,12 +126,12 @@ class PPOTrainer(BaseTrainer):
         stepGenerate: torch.tensor, 
         externalObservation: torch.tensor,
     ):
-        generatedInstance = stepGenerate[:, :self.acter_model.config.problem_dim].cpu().detach().numpy()
+        generatedInstance = stepGenerate[:, :self.actor_model.config.problem_dim].cpu().detach().numpy()
         insts = externalObservation[0][1:self.instance_observation_size+1, :-1].cpu().detach().numpy()
-        insts = np.append(insts, np.array([[-1]*self.acter_model.config.problem_dim]),0)
-        generatedKnapsack = stepGenerate[:, self.acter_model.config.problem_dim:].cpu().detach().numpy()
+        insts = np.append(insts, np.array([[-1]*self.actor_model.config.problem_dim]),0)
+        generatedKnapsack = stepGenerate[:, self.actor_model.config.problem_dim:].cpu().detach().numpy()
         ks = externalObservation[0][self.instance_observation_size+2:-1, :-1].cpu().detach().numpy()
-        ks = np.append(ks, np.array([[-1]*self.acter_model.config.problem_dim]),0)
+        ks = np.append(ks, np.array([[-1]*self.actor_model.config.problem_dim]),0)
 
         inst_cosin_sim = (generatedInstance @ insts.T)/(np.expand_dims(
             np.linalg.norm(generatedInstance, axis=1),0).T @ np.expand_dims(
@@ -170,13 +169,13 @@ class PPOTrainer(BaseTrainer):
         actions: np.ndarray,
         statePrepare: ExternalStatePrepare,
     ):
-        rewards = []
+        rewards = []; accepted_action = []
         for inst_act, ks_act in actions:
             if inst_act == statePrepare.instanceObsSize or \
             ks_act == statePrepare.knapsackObsSize:
                 rewards.append(0)
             else:
-                knapSack = statePrepare.getKnapsack(ks_act).getExpectedCap()
+                knapSack = statePrepare.getKnapsack(ks_act)
                 eCap = knapSack.getExpectedCap()
                 weight = statePrepare.getObservedInstWeight(inst_act)
                 if all(weight == 0):
@@ -184,10 +183,11 @@ class PPOTrainer(BaseTrainer):
                 elif all(eCap >= weight):
                     rewards.append(statePrepare.getObservedInstValue(inst_act))
                     knapSack.addExpectedCap(weight)
+                    accepted_action.append((inst_act, ks_act))
                 else:
                     rewards.append(-int(self.info['VALUE_HIGH']))
         
-        return torch.tensor(rewards)
+        return torch.tensor(rewards), accepted_action
     
     def steps (
         self,
@@ -197,19 +197,22 @@ class PPOTrainer(BaseTrainer):
         externalObservation = torch.cat(
             [externalObservation]*self.config.internal_batch, 0)
         prompt = None
-        all_acts = np.zeros((0,2))#TODO check all_acts
+        learn_iter = 0
+        all_acts = np.zeros((0,2), dtype=int)
         for i in (0, self.config.generat_link_number+1, self.config.internal_batch):
             stepGenerate, internalObservation, prompt = self.generate_step(
                 externalObservation[0].unsqueeze(0), prompt)
             action, prob = self._choose_actions(stepGenerate, externalObservation)
             values = self.critic_model(externalObservation, 
                                        internalObservation)
-            intervalReward = self._internal_reward(action, statePrepare)
-            all_acts = np.append(all_acts, action, 0)
+            intervalReward, accepted_action = self._internal_reward(action, statePrepare)
+            all_acts = np.append(all_acts, accepted_action, 0)
+            learn_iter += 1
             for _ in range(self.config.ppo_epochs):
                 self.train_minibatch(externalObservation, internalObservation, 
                                      action, prob, values, intervalReward, 
-                                     self._generate_batch())#TODO we are here
+                                     self._generate_batch())
+        return all_acts, learn_iter
                 
     def _generate_batch (
         self, 
@@ -261,10 +264,10 @@ class PPOTrainer(BaseTrainer):
             critic_value = self.critic(eo, io)
             critic_value = torch.squeeze(critic_value)
             
-            new_inst_log_probs = inst_dist.log_prob(actions[:,0])
-            new_ks_log_probs = ks_dist.log_prob(actions[:,1])
+            new_inst_log_probs = inst_dist.log_prob(acts[:,0])
+            new_ks_log_probs = ks_dist.log_prob(acts[:,1])
             new_log_probs = new_inst_log_probs + new_ks_log_probs
-            prob_ratio = new_log_probs.exp() / old_log_probs.exp()
+            prob_ratio = new_log_probs.exp() / olp.exp()
             
             weighted_probs = advantage[batch] * prob_ratio
             weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
@@ -280,10 +283,8 @@ class PPOTrainer(BaseTrainer):
             self.actor.optimizer.zero_grad()
             self.critic.optimizer.zero_grad()
             total_loss.backward()
-            self.actor.optimizer.step()
-            self.critic.optimizer.step()
-        
-        return #TODO all_acts
+            self.actor_optimizer.step()
+            self.critic_optimizer.step()
         
     def _early_stop(self, policykl):
         pass
