@@ -66,11 +66,6 @@ class KnapsackAssignmentEnv (gym.Env):
         self.config = config
         self.device = device
         self.statePrepare = state_dataClass
-        
-        #self.dataset = dataset
-        #self._signature_columns = None
-        #self.dataloader = self.prepare_dataloader(self.dataset)
-        
     
     def _get_obs(self) -> dict:
         stateCaps, stateWeightValues = self.statePrepare.getObservation()
@@ -94,11 +89,14 @@ class KnapsackAssignmentEnv (gym.Env):
         externalObservation = torch.tensor(externalObservation).unsqueeze(dim=0)        
         return externalObservation, info
     
-    def step (self, action):
+    def step (self, actions):
+        self.statePrepare.changeNextState(actions) 
+        terminated = self.statePrepare.is_terminated() #TODO add termination condition 
         
-        terminated = self.statePrepare.is_terminated()
+        if terminated:
+            externalReward = self.reward_function(actions)
+        else: externalReward = 0
         
-        reward = self.reward_function(action)
         
         externalObservation = self._get_obs()
         ACT = np.zeros((1,self.config.dim))
@@ -111,12 +109,12 @@ class KnapsackAssignmentEnv (gym.Env):
                                                        
         info = self._get_info()
         
-        return externalObservation, reward, terminated, info
+        return externalObservation, externalReward, terminated, info
     
     def response_decode (self, responce):
         pass
     
-    def reward_function (self, action):
+    def reward_function (self, actions):
         pass
     
     

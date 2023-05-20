@@ -81,21 +81,16 @@ class TransformerKnapsack (nn.Module):
             
             memory_mask = torch.matmul(decoder_mask.unsqueeze(2).long(), 
                                        encoder_mask.unsqueeze(1).long())
-            #torch.matmul(decoder_mask.T.long(), encoder_mask.long())
             encoder_mask_sqr = torch.matmul(encoder_mask.unsqueeze(2), 
                                             encoder_mask.unsqueeze(1))
-            #torch.matmul(encoder_mask.T, encoder_mask)
             decoder_mask = torch.matmul(decoder_mask.unsqueeze(2), 
                                         decoder_mask.unsqueeze(1))
-            #torch.matmul(decoder_mask.T, decoder_mask)
             
             next_ = self.forward(external_obs, encoder_mask_sqr, internal_obs, 
                                  decoder_mask, memory_mask)
-            print(out.size())
-            print(next_.size())
-            print(torch.mean(next_, 1).unsqueeze(1).size())
+           
             out = torch.cat([out, torch.mean(next_, 1).unsqueeze(1)], dim=1)
-        out = out[0][max_len_generate+1:]
+        out = out[:,max_len_generate+1:].squeeze()
         #TODO check transformer encoder and change in mean
         return out, internalObservs
      
