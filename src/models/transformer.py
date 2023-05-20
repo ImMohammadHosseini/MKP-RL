@@ -16,12 +16,16 @@ class TransformerKnapsack (nn.Module):
     def __init__(
         self,
         config,
+        device: torch.device = torch.device("cpu"),
     ):
         super().__init__()
         self.config = config
+        self.device = device
+        
         self.embed = nn.Linear(self.config.input_dim, self.config.output_dim)
         self.position_encode = PositionalEncoding(self.config.output_dim, 
-                                                  self.config.max_length)
+                                                  self.config.max_length,
+                                                  self.device)
         
         encoder_layers = TransformerEncoderLayer(
             d_model=self.config.output_dim,
@@ -108,8 +112,11 @@ class TransformerKnapsack (nn.Module):
         decoder_mask = decoder_mask.to(torch.bool)
         memory_mask = memory_mask.to(torch.bool)
         
+        self.embed.to(self.device)
         obs_embeding = self.embed(external_obs)
-        positional = self.position_encode(obs_embeding)
+        positional = self.position_encode(obs_embeding)  
+        self.encoder = self.encoder.to(self.device)
+        self.decoder = self.decoder.to(self.device)
         return self.decoder(internal_obs, self.encoder(positional, encoder_mask), 
                             decoder_mask, memory_mask)
         
