@@ -11,7 +11,7 @@ from .src.core import (
     set_seed,  
 )
 from torch.distributions.categorical import Categorical
-from ..src.data_structure.state_prepare import ExternalStatePrepare
+from src.data_structure.state_prepare import ExternalStatePrepare
 
 from .src.base_trainer import BaseTrainer
 from configs.ppo_configs import PPOConfig
@@ -32,8 +32,6 @@ class PPOTrainer(BaseTrainer):
         device: torch.device = torch.device("cpu"),
         actor_optimizer: Optional[torch.optim.Optimizer] = None,
         critic_optimizer: Optional[torch.optim.Optimizer] = None,
-        data_collator=None,
-        num_shared_layers: Optional[int] = None,
     ):
         super().__init__(config)
         
@@ -45,14 +43,10 @@ class PPOTrainer(BaseTrainer):
         self.device = device
         self.softmax = torch.nn.Softmax()
         self.info = info
-        '''if not isinstance(env, EnvBase):
-            raise ValueError(f"env must be a torchrl.envs.EnvBase, got {type(env)}")
-        else:
-            self.env = env'''
-        #self.accelerator
         
         self.actor_model = actor_model
         self.critic_model = critic_model
+        self.critic_model.to(self.device)
         
         if actor_optimizer is None:
             self.actor_optimizer = Adam(
@@ -78,14 +72,14 @@ class PPOTrainer(BaseTrainer):
         if max_tokens_to_generate is None:
             max_tokens_to_generate = self.config.internal_batch
         encoder_ACT = [0]*self.actor_model.config.input_dim
-        encoder_mask = torch.ones_like(external_obs[:,:,0])
+        encoder_mask = torch.ones_like(external_obs[:,:,0], device=self.device)
         encoder_mask[torch.all(external_obs == torch.tensor(encoder_ACT), dim=2)] = 0
         encoder_mask = torch.cat([encoder_mask]*self.actor_model.config.nhead , 0)
 
         decoder_ACT = [0]*self.actor_model.config.output_dim
         if promp_tensor == None:
             start_tokens = [decoder_ACT]
-            prompt_tensor = torch.tensor(
+            promp_tensor = torch.tensor(
                 self.actor_model.pad_left(
                     sequence=start_tokens,
                     final_length=self.config.internal_batch + 1,
@@ -93,31 +87,39 @@ class PPOTrainer(BaseTrainer):
                     ),
                 dtype=torch.long
             )
-            prompt_tensor = prompt_tensor.unsqueeze(dim=0)
-            prompt_tensor = torch.cat([prompt_tensor]*external_obs.size(0), 0)
+            promp_tensor = promp_tensor.unsqueeze(dim=0)
+            promp_tensor = torch.cat([promp_tensor]*external_obs.size(0), 0)
         
-        out = prompt_tensor
+        out = promp_tensor.to(self.device)
         internalObservs = []
         for _ in range(max_tokens_to_generate):
             internal_obs = out[:,-(self.config.internal_batch+1):,:]
             internalObservs.append(internal_obs)
             
             decoder_mask = torch.ones_like(internal_obs[:,:,0])
-            decoder_mask[torch.all(internal_obs == torch.tensor(decoder_ACT), dim=2)] = 0
-            decoder_mask = torch.cat([decoder_mask]*self.config.nhead , 0)
+            decoder_mask[torch.all(internal_obs == torch.tensor(decoder_ACT, 
+                                                                device=self.device), 
+                                   dim=2)] = 0
+            decoder_mask = torch.cat([decoder_mask]*self.actor_model.config.nhead , 0)
 
-            memory_mask = torch.matmul(decoder_mask.unsqueeze(2).long(), 
-                                       encoder_mask.unsqueeze(1).long())
-            encoder_mask_sqr = torch.matmul(encoder_mask.unsqueeze(2), 
-                                            encoder_mask.unsqueeze(1))
-            decoder_mask = torch.matmul(decoder_mask.unsqueeze(2), 
-                                        decoder_mask.unsqueeze(1))
-
+            memory_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2).long(), 
+                                       encoder_mask.to(torch.device('cpu')).unsqueeze(1).long())
+            encoder_mask_sqr = torch.matmul(encoder_mask.to(torch.device('cpu')).unsqueeze(2), 
+                                            encoder_mask.to(torch.device('cpu')).unsqueeze(1))
+            decoder_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2), 
+                                        decoder_mask.to(torch.device('cpu')).unsqueeze(1))
+            
+            external_obs = external_obs.to(self.device)
+            encoder_mask_sqr = encoder_mask_sqr.to(self.device)
+            internal_obs = internal_obs.to(self.device)
+            decoder_mask = decoder_mask.to(self.device)
+            memory_mask = memory_mask.to(self.device)
             next_ = self.actor_model(external_obs, encoder_mask_sqr, internal_obs, 
                                      decoder_mask, memory_mask)
             out = torch.cat([out, torch.mean(next_, 1).unsqueeze(1)], dim=1)
-            
-        return out[self.config.internal_batch+1:].squeeze(), \
+        
+        
+        return out[:,self.config.internal_batch+1:].squeeze(), \
             torch.cat(internalObservs, 0), \
                 out[:,-(self.config.internal_batch+1):,:]
             
@@ -127,12 +129,14 @@ class PPOTrainer(BaseTrainer):
         externalObservation: torch.tensor,
     ):
         generatedInstance = stepGenerate[:, :self.actor_model.config.problem_dim].cpu().detach().numpy()
-        insts = externalObservation[0][1:self.instance_observation_size+1, :-1].cpu().detach().numpy()
+        insts = externalObservation[0][1:self.actor_model.config.inst_obs_size+1,
+                                       :-1].cpu().detach().numpy()
         insts = np.append(insts, np.array([[-1]*self.actor_model.config.problem_dim]),0)
         generatedKnapsack = stepGenerate[:, self.actor_model.config.problem_dim:].cpu().detach().numpy()
-        ks = externalObservation[0][self.instance_observation_size+2:-1, :-1].cpu().detach().numpy()
+        ks = externalObservation[0][self.actor_model.config.inst_obs_size+2:-1,
+                                    :-1].cpu().detach().numpy()
         ks = np.append(ks, np.array([[-1]*self.actor_model.config.problem_dim]),0)
-
+        
         inst_cosin_sim = (generatedInstance @ insts.T)/(np.expand_dims(
             np.linalg.norm(generatedInstance, axis=1),0).T @ np.expand_dims(
                 np.linalg.norm(insts, axis=1),0))
@@ -164,7 +168,7 @@ class PPOTrainer(BaseTrainer):
         log_probs = inst_log_probs + ks_log_probs
         return acts, log_probs
     
-    def _internal_reward (
+    def internal_reward (
         self,
         actions: np.ndarray,
         statePrepare: ExternalStatePrepare,
@@ -203,26 +207,27 @@ class PPOTrainer(BaseTrainer):
             stepGenerate, internalObservation, prompt = self.generate_step(
                 externalObservation[0].unsqueeze(0), prompt)
             action, prob = self._choose_actions(stepGenerate, externalObservation)
-            values = self.critic_model(externalObservation, 
-                                       internalObservation)
-            intervalReward, accepted_action = self._internal_reward(action, statePrepare)
+            values = self.critic_model(externalObservation.to(self.device), 
+                                       internalObservation.to(self.device))
+            intervalReward, accepted_action = self.internal_reward(action, statePrepare)
             all_acts = np.append(all_acts, accepted_action, 0)
             learn_iter += 1
             for _ in range(self.config.ppo_epochs):
+                dones, batches = self._generate_batch()
                 self.train_minibatch(externalObservation, internalObservation, 
                                      action, prob, values, intervalReward, 
-                                     self._generate_batch())
+                                     dones, batches)
         return all_acts, learn_iter
                 
     def _generate_batch (
         self, 
         dones: Optional[torch.tensor] = None,
     ):
-        n_states = self.cofig.internal_batch
-        batch_start = np.arange(0, n_states, self.cofig.ppo_batch_size)
+        n_states = self.config.internal_batch
+        batch_start = np.arange(0, n_states, self.config.ppo_batch_size)
         indices = np.arange(n_states, dtype=np.int64)
         np.random.shuffle(indices)
-        batches = [indices[i:i+self.batch_size] for i in batch_start]
+        batches = [indices[i:i+self.config.ppo_batch_size] for i in batch_start]
         
         if dones is None:
             dones = torch.tensor([False]*n_states)
@@ -241,7 +246,7 @@ class PPOTrainer(BaseTrainer):
         dones: torch.tensor,
         batches: List,
     ):
-        advantage = torch.zeros(self.config.internal_batch, dtype=np.float32)
+        advantage = torch.zeros(self.config.internal_batch, dtype=torch.float32, device=self.device)
         for t in range(self.config.internal_batch-1):
             discount = 1
             a_t = 0
@@ -261,13 +266,13 @@ class PPOTrainer(BaseTrainer):
             stepGenerate, _, _ = self.generate_step(eo, io, 1)
             inst_dist, ks_dist = self._make_distribution(stepGenerate, 
                                                          eo)
-            critic_value = self.critic(eo, io)
+            critic_value = self.critic_model(eo.to(self.device), io.to(self.device))
             critic_value = torch.squeeze(critic_value)
             
             new_inst_log_probs = inst_dist.log_prob(acts[:,0])
             new_ks_log_probs = ks_dist.log_prob(acts[:,1])
             new_log_probs = new_inst_log_probs + new_ks_log_probs
-            prob_ratio = new_log_probs.exp() / olp.exp()
+            prob_ratio = (new_log_probs.exp() / olp.exp()).to(self.device)
             
             weighted_probs = advantage[batch] * prob_ratio
             weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
@@ -280,28 +285,15 @@ class PPOTrainer(BaseTrainer):
 
             total_loss = actor_loss + 0.5*critic_loss
             
-            self.actor.optimizer.zero_grad()
-            self.critic.optimizer.zero_grad()
-            total_loss.backward()
+            self.actor_optimizer.zero_grad()
+            self.critic_optimizer.zero_grad()
+            total_loss.backward(retain_graph=True)
             self.actor_optimizer.step()
             self.critic_optimizer.step()
         
     def _early_stop(self, policykl):
         pass
-    
-    def gather_stats(self, stats):
-        pass
-    
-    def batched_forward_pass(
-        self,
-        #model: PreTrainedModel,
-        queries: torch.Tensor,
-        responses: torch.Tensor,
-        model_inputs: dict,
-        return_logits: bool = False,
-    ):
-        pass
-    
+
     def loss(
         self,
         old_logprobs: torch.FloatTensor,
