@@ -6,7 +6,6 @@ import torch
 import numpy as np
 from torch.optim import Adam
 from typing import List, Optional
-from transformers import PreTrainedModel
 
 from utils.import_utils import is_torch_greater_2_0
 from .src.core import (
@@ -29,16 +28,13 @@ class PPOTrainer(BaseTrainer):
         self,
         info: List,
         config: Optional[PPOConfig] = None,
-        #env: EnvBase = None,
-        model: Optional[torch.nn.Module] = None,
+        acter_model: Optional[torch.nn.Module] = None,
         critic_model: Optional[torch.nn.Module] = None,
         device: torch.device = torch.device("cpu"),
-        #ref_model: PreTrainedModelWrapper = None,
-        #tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast] = None,
-        optimizer: Optional[torch.optim.Optimizer] = None,
+        acter_optimizer: Optional[torch.optim.Optimizer] = None,
+        critic_optimizer: Optional[torch.optim.Optimizer] = None,
         data_collator=None,
         num_shared_layers: Optional[int] = None,
-        lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
     ):
         super().__init__(config)
         
@@ -56,28 +52,23 @@ class PPOTrainer(BaseTrainer):
             self.env = env'''
         #self.accelerator
         
-        self.model = model
+        self.acter_model = acter_model
         self.critic_model = critic_model
         
-        if optimizer is None:
-            self.optimizer = Adam(
-                filter(lambda p: p.requires_grad, self.model.parameters()), lr=self.config.learning_rate
+        if acter_optimizer is None:
+            self.acter_optimizer = Adam(
+                filter(lambda p: p.requires_grad, self.acter_model.parameters()), lr=self.config.acter_lr
             )
         else:
-            self.optimizer = optimizer
-
-        self.lr_scheduler = lr_scheduler
-        if self.lr_scheduler is not None:
-            lr_scheduler_class = (
-                torch.optim.lr_scheduler._LRScheduler
-                if not is_torch_greater_2_0()
-                else torch.optim.lr_scheduler.LRScheduler
+            self.acter_optimizer = acter_optimizer
+        
+        if critic_optimizer is None:
+            self.critic_optimizer = Adam(
+                filter(lambda p: p.requires_grad, self.critic_model.parameters()), lr=self.config.critic_lr
             )
+        else:
+            self.critic_optimizer = critic_optimizer
 
-            if not isinstance(self.lr_scheduler, lr_scheduler_class):
-                raise ValueError(
-                    "lr_scheduler must be a torch.optim.lr_scheduler._LRScheduler or torch.optim.lr_scheduler.LRScheduler (for torch >= 2.0)"
-                )
 
     def generate_step (
         self,
@@ -87,16 +78,16 @@ class PPOTrainer(BaseTrainer):
     ):
         if max_tokens_to_generate is None:
             max_tokens_to_generate = self.config.internal_batch
-        encoder_ACT = [0]*self.model.config.input_dim
+        encoder_ACT = [0]*self.acter_model.config.input_dim
         encoder_mask = torch.ones_like(external_obs[:,:,0])
         encoder_mask[torch.all(external_obs == torch.tensor(encoder_ACT), dim=2)] = 0
-        encoder_mask = torch.cat([encoder_mask]*self.model.config.nhead , 0)
+        encoder_mask = torch.cat([encoder_mask]*self.acter_model.config.nhead , 0)
 
-        decoder_ACT = [0]*self.model.config.output_dim
+        decoder_ACT = [0]*self.acter_model.config.output_dim
         if promp_tensor == None:
             start_tokens = [decoder_ACT]
             prompt_tensor = torch.tensor(
-                self.model.pad_left(
+                self.acter_model.pad_left(
                     sequence=start_tokens,
                     final_length=self.config.internal_batch + 1,
                     padding_token=decoder_ACT
@@ -123,8 +114,8 @@ class PPOTrainer(BaseTrainer):
             decoder_mask = torch.matmul(decoder_mask.unsqueeze(2), 
                                         decoder_mask.unsqueeze(1))
 
-            next_ = self.model(external_obs, encoder_mask_sqr, internal_obs, 
-                                 decoder_mask, memory_mask)
+            next_ = self.acter_model(external_obs, encoder_mask_sqr, internal_obs, 
+                                     decoder_mask, memory_mask)
             out = torch.cat([out, torch.mean(next_, 1).unsqueeze(1)], dim=1)
             
         return out[self.config.internal_batch+1:].squeeze(), \
@@ -136,12 +127,12 @@ class PPOTrainer(BaseTrainer):
         stepGenerate: torch.tensor, 
         externalObservation: torch.tensor,
     ):
-        generatedInstance = stepGenerate[:, :self.model.config.problem_dim].cpu().detach().numpy()
+        generatedInstance = stepGenerate[:, :self.acter_model.config.problem_dim].cpu().detach().numpy()
         insts = externalObservation[0][1:self.instance_observation_size+1, :-1].cpu().detach().numpy()
-        insts = np.append(insts, np.array([[-1]*self.model.config.problem_dim]),0)
-        generatedKnapsack = stepGenerate[:, self.model.config.problem_dim:].cpu().detach().numpy()
+        insts = np.append(insts, np.array([[-1]*self.acter_model.config.problem_dim]),0)
+        generatedKnapsack = stepGenerate[:, self.acter_model.config.problem_dim:].cpu().detach().numpy()
         ks = externalObservation[0][self.instance_observation_size+2:-1, :-1].cpu().detach().numpy()
-        ks = np.append(ks, np.array([[-1]*self.model.config.problem_dim]),0)
+        ks = np.append(ks, np.array([[-1]*self.acter_model.config.problem_dim]),0)
 
         inst_cosin_sim = (generatedInstance @ insts.T)/(np.expand_dims(
             np.linalg.norm(generatedInstance, axis=1),0).T @ np.expand_dims(
@@ -270,8 +261,29 @@ class PPOTrainer(BaseTrainer):
             critic_value = self.critic(eo, io)
             critic_value = torch.squeeze(critic_value)
             
-            #new_probs = dist.log_prob(actions) #TODO we are here
-        pass
+            new_inst_log_probs = inst_dist.log_prob(actions[:,0])
+            new_ks_log_probs = ks_dist.log_prob(actions[:,1])
+            new_log_probs = new_inst_log_probs + new_ks_log_probs
+            prob_ratio = new_log_probs.exp() / old_log_probs.exp()
+            
+            weighted_probs = advantage[batch] * prob_ratio
+            weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
+                        1+self.config.cliprange)*advantage[batch]
+            
+            actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
+            returns = advantage[batch] + vals[batch]
+            critic_loss = (returns-critic_value)**2
+            critic_loss = critic_loss.mean()
+
+            total_loss = actor_loss + 0.5*critic_loss
+            
+            self.actor.optimizer.zero_grad()
+            self.critic.optimizer.zero_grad()
+            total_loss.backward()
+            self.actor.optimizer.step()
+            self.critic.optimizer.step()
+        
+        return #TODO all_acts
         
     def _early_stop(self, policykl):
         pass
@@ -281,7 +293,7 @@ class PPOTrainer(BaseTrainer):
     
     def batched_forward_pass(
         self,
-        model: PreTrainedModel,
+        #model: PreTrainedModel,
         queries: torch.Tensor,
         responses: torch.Tensor,
         model_inputs: dict,
