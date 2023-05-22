@@ -188,11 +188,14 @@ class PPOTrainer(BaseTrainer):
         actions: np.ndarray,
         statePrepare: ExternalStatePrepare,
     ):
-        rewards = []; accepted_action = []
+        rewards = []; accepted_action = np.zeros((0,2), dtype= int)
         for inst_act, ks_act in actions:
             if inst_act == statePrepare.instanceObsSize or \
             ks_act == statePrepare.knapsackObsSize:
                 rewards.append(0)
+            elif inst_act < statePrepare.pad_len or \
+                inst_act in accepted_action[:,0]:
+                rewards.append(-int(self.info['VALUE_LOW']))
             else:
                 knapSack = statePrepare.getKnapsack(ks_act)
                 eCap = knapSack.getExpectedCap()
@@ -202,7 +205,8 @@ class PPOTrainer(BaseTrainer):
                 elif all(eCap >= weight):
                     rewards.append(statePrepare.getObservedInstValue(inst_act))
                     knapSack.addExpectedCap(weight)
-                    accepted_action.append((inst_act, ks_act))
+                    accepted_action = np.append(accepted_action, 
+                                                [[inst_act, ks_act]], 0)
                 else:
                     rewards.append(-int(self.info['VALUE_HIGH']))
         
@@ -217,7 +221,7 @@ class PPOTrainer(BaseTrainer):
             [externalObservation]*self.config.internal_batch, 0)
         prompt = None
         learn_iter = 0
-        all_acts = []
+        all_acts = np.zeros((0,2), dtype= int)
         for i in (0, self.config.generat_link_number+1, self.config.internal_batch):
             stepGenerate, internalObservation, prompt = self.generate_step(
                 externalObservation[0].unsqueeze(0), prompt)
@@ -228,7 +232,7 @@ class PPOTrainer(BaseTrainer):
             values = self.critic_model(externalObservation.to(self.device), 
                                        internalObservation.to(self.device))
             intervalReward, accepted_action = self.internal_reward(action, statePrepare)
-            all_acts += accepted_action
+            all_acts = np.append(all_acts, accepted_action, 0)
             learn_iter += 1
             for _ in range(self.config.ppo_epochs):
                 dones, batches = self._generate_batch()
