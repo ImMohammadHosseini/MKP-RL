@@ -95,13 +95,13 @@ class KnapsackAssignmentEnv (gym.Env):
         return np.append(np.repeat(padding_token, (final_length - len(sequence)), 
                                    axis=0), sequence, axis=0)
     
-    def step (self, actions):
-        if len(actions) == 0: self.no_change += 1
-        else: self.statePrepare.changeNextState(actions) 
+    def step (self, step_actions):
+        if len(step_actions) == 0: self.no_change += 1
+        else: self.statePrepare.changeNextState(step_actions) 
         terminated = self.statePrepare.is_terminated() or self.no_change == self.no_change_long 
         
         if terminated:
-            externalReward = self.reward_function(actions)
+            externalReward = self.reward_function()
         else: externalReward = 0
         
         externalObservation = self._get_obs()
@@ -124,9 +124,11 @@ class KnapsackAssignmentEnv (gym.Env):
     def response_decode (self, responce):
         pass
     
-    def reward_function (self, actions):
-        pass
-    
+    def reward_function (self):
+        external_reward = 0
+        for ks in self.statePrepare.knapsacks:
+            external_reward += ks.score_ratio
+        return external_reward
     
     
     
