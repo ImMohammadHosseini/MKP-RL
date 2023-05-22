@@ -13,6 +13,7 @@ from .src.core import (
 from torch.distributions.categorical import Categorical
 from src.data_structure.state_prepare import ExternalStatePrepare
 
+from torch.autograd import Variable
 from .src.base_trainer import BaseTrainer
 from configs.ppo_configs import PPOConfig
 
@@ -35,10 +36,13 @@ class PPOTrainer(BaseTrainer):
     ):
         super().__init__(config)
         
+        self.nanAll = 0#TODO delete these lines
+        self.nanTrue = 0
+        
         if not isinstance(config, PPOConfig):
             raise ValueError(f"config must be a PPOConfig, got {type(config)}")
         
-        set_seed(config.seed)
+        #set_seed(config.seed)
         
         self.device = device
         self.softmax = torch.nn.Softmax()
@@ -116,18 +120,29 @@ class PPOTrainer(BaseTrainer):
             memory_mask = memory_mask.to(self.device)
             next_ = self.actor_model(external_obs, encoder_mask_sqr, internal_obs, 
                                      decoder_mask, memory_mask)
-            out = torch.cat([out, torch.mean(next_, 1).unsqueeze(1)], dim=1)
-        
-        
+            out = torch.cat([out, torch.nan_to_num(torch.mean(next_, 1).unsqueeze(1))], dim=1)
+            
+            self.nanAll +=1
+            if torch.stack([torch.isnan(p).all() for p in self.actor_model.parameters()]).all():
+                print ('nan parameter', self.nanAll)
+            if torch.isnan(next_).any():
+                self.nanTrue +=1
+                #print('all:  nan:', (self.nanAll , self.nanTrue ))
+                #print('all', torch.isnan(next_).all())
+        if torch.isnan(out[:,self.config.internal_batch+1:].squeeze()).any():pass
+            #print('yes', torch.isnan(out[:,self.config.internal_batch+1:].squeeze()))
+        #print('out', out.size())
         return out[:,self.config.internal_batch+1:].squeeze(), \
             torch.cat(internalObservs, 0), \
-                out[:,-(self.config.internal_batch+1):,:]
+                out[:,self.config.internal_batch:,:]
             
     def _make_distribution (
         self, 
         stepGenerate: torch.tensor, 
         externalObservation: torch.tensor,
     ):
+        if (torch.isnan(stepGenerate).any()):
+            print('make true')
         generatedInstance = stepGenerate[:, :self.actor_model.config.problem_dim].cpu().detach().numpy()
         insts = externalObservation[0][1:self.actor_model.config.inst_obs_size+1,
                                        :-1].cpu().detach().numpy()
@@ -144,9 +159,9 @@ class PPOTrainer(BaseTrainer):
             np.linalg.norm(generatedKnapsack, axis=1),0).T @ np.expand_dims(
                 np.linalg.norm(ks, axis=1),0))
         
-        inst_dist = self.softmax(torch.tensor(inst_cosin_sim))
+        inst_dist = self.softmax(torch.nan_to_num(torch.tensor(inst_cosin_sim)))
         inst_dist = Categorical(inst_dist)
-        ks_dist = self.softmax(torch.tensor(ks_cosin_sim))
+        ks_dist = self.softmax(torch.nan_to_num(torch.tensor(ks_cosin_sim)))
         ks_dist = Categorical(ks_dist)
         
         return inst_dist, ks_dist
@@ -173,11 +188,14 @@ class PPOTrainer(BaseTrainer):
         actions: np.ndarray,
         statePrepare: ExternalStatePrepare,
     ):
-        rewards = []; accepted_action = []
+        rewards = []; accepted_action = np.zeros((0,2), dtype= int)
         for inst_act, ks_act in actions:
             if inst_act == statePrepare.instanceObsSize or \
             ks_act == statePrepare.knapsackObsSize:
                 rewards.append(0)
+            elif inst_act < statePrepare.pad_len or \
+                inst_act in accepted_action[:,0]:
+                rewards.append(-int(self.info['VALUE_LOW']))
             else:
                 knapSack = statePrepare.getKnapsack(ks_act)
                 eCap = knapSack.getExpectedCap()
@@ -187,7 +205,8 @@ class PPOTrainer(BaseTrainer):
                 elif all(eCap >= weight):
                     rewards.append(statePrepare.getObservedInstValue(inst_act))
                     knapSack.addExpectedCap(weight)
-                    accepted_action.append((inst_act, ks_act))
+                    accepted_action = np.append(accepted_action, 
+                                                [[inst_act, ks_act]], 0)
                 else:
                     rewards.append(-int(self.info['VALUE_HIGH']))
         
@@ -202,11 +221,14 @@ class PPOTrainer(BaseTrainer):
             [externalObservation]*self.config.internal_batch, 0)
         prompt = None
         learn_iter = 0
-        all_acts = np.zeros((0,2), dtype=int)
+        all_acts = np.zeros((0,2), dtype= int)
         for i in (0, self.config.generat_link_number+1, self.config.internal_batch):
             stepGenerate, internalObservation, prompt = self.generate_step(
                 externalObservation[0].unsqueeze(0), prompt)
+            #print(prompt[-1])
             action, prob = self._choose_actions(stepGenerate, externalObservation)
+            #print(externalObservation.size())
+            #print(internalObservation.size())
             values = self.critic_model(externalObservation.to(self.device), 
                                        internalObservation.to(self.device))
             intervalReward, accepted_action = self.internal_reward(action, statePrepare)
@@ -283,12 +305,22 @@ class PPOTrainer(BaseTrainer):
             critic_loss = (returns-critic_value)**2
             critic_loss = critic_loss.mean()
 
-            total_loss = actor_loss + 0.5*critic_loss
-            
+            #total_loss = actor_loss + 0.5*critic_loss
+            #print(total_loss)
             self.actor_optimizer.zero_grad()
             self.critic_optimizer.zero_grad()
-            total_loss.backward(retain_graph=True)
+            #total_loss.backward(retain_graph=True)
+            #print('actor_loss', actor_loss)
+            #print('critic_loss', critic_loss)
+            #critic_loss.requires_grad = True
+
+            #actor_loss.requires_grad = True
+            actor_loss_leaf = Variable(actor_loss.data, requires_grad=True)
+            critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
+
+            actor_loss_leaf.backward()
             self.actor_optimizer.step()
+            critic_loss_leaf.backward(retain_graph=True)
             self.critic_optimizer.step()
         
     def _early_stop(self, policykl):
