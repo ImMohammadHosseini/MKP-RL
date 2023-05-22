@@ -40,7 +40,12 @@ class Knapsack:
         self.instanceWeights = np.append(self.instanceWeights, 
                                          np.expand_dims(instWeight, axis=0), 
                                          axis=0)
-        
+    def score_ratio (self):
+        ratio = 0
+        for weight, value in zip(self.instanceWeights, self.instanceValues):
+            ratio += value / np.sum(weight)
+        return ratio
+    
     def getCap (self):
         return self.capacities
     
