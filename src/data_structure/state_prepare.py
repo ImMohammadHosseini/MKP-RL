@@ -47,24 +47,35 @@ class ExternalStatePrepare:
         self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps),1)), 
                                    axis=1)
         try:
+            self.pad_len = 0
             self.stateWeightValues = np.append(self.remainInstanceWeights[
                 :self.instanceObsSize], self.remainInstanceValues[
                     :self.instanceObsSize], axis=1)
             self.remainInstanceWeights = self.remainInstanceWeights[self.instanceObsSize:]
             self.remainInstanceValues = self.remainInstanceValues[self.instanceObsSize:]
         except: 
-            pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
-            padding = np.zeros((pad_len, len(self.remainInstanceWeights[0])+1))
-            self.stateWeightValues = np.append(padding, 
+            self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
+            padding = np.zeros((1,self.dim))#np.zeros((self.pad_len, len(self.remainInstanceWeights[0])+1))
+            self.stateWeightValues = self._pad_left(np.append(
+                self.remainInstanceWeights, self.remainInstanceValues, axis=1),
+                padding)
+            '''np.append(padding, 
                                                np.append(self.remainInstanceWeights, 
                                                self.remainInstanceValues, axis=1),
-                                               axis=0)
+                                               axis=0)'''
             self.remainInstanceWeights = np.zeros((0, self.weights.shape[1]))
             self.remainInstanceValues = np.zeros(0)
         
-        
         return self.stateCaps, self.stateWeightValues
 
+    def _pad_left(
+        self,
+        sequence: np.ndarray, 
+        padding_token: np.ndarray,
+    ):
+        #self.statePrepare.pad_len = final_length - len(sequence)
+        return np.append(np.repeat(padding_token, self.pad_len, axis=0), 
+                         sequence, axis=0)
     
     def getKnapsack (self, index) -> Knapsack:
         return self.knapsacks[index]
