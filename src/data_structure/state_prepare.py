@@ -81,11 +81,9 @@ class ExternalStatePrepare:
         return self.knapsacks[index]
     
     def getObservedInstWeight (self, index):
-        index -= self.pad_len
         return self.stateWeightValues[index][:-1]
     
     def getObservedInstValue (self, index):
-        index -= self.pad_len
         return self.stateWeightValues[index][-1]
     
     def is_terminated (self):
@@ -99,6 +97,7 @@ class ExternalStatePrepare:
             weight = self.getObservedInstWeight(inst_act)
             value = self.getObservedInstValue(inst_act)
             assert all(cap >= weight)
+            assert inst_act < self.pad_len
             knapSack.addInstance(weight, value)
             deleteList.append(inst_act)
         self.stateWeightValues = np.delete(self.stateWeightValues, 

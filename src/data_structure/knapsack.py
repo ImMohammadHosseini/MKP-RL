@@ -18,7 +18,7 @@ class Knapsack:
     
     def reset (self) -> None:
         self.instanceWeights = np.zeros((0, self.capacities.shape[0]))
-        self.instanceValues = np.array([])
+        self.instanceValues = np.array([], dtype=int)
         self.resetExpectedCap()
         
     def getRemainCap(self) -> np.ndarray:
@@ -28,7 +28,7 @@ class Knapsack:
     def getExpectedCap (self):
         return self.expectedCap
     
-    def addExpectedCap (self, newCap: np.ndarray):
+    def removeExpectedCap (self, newCap: np.ndarray):
         self.expectedCap =- newCap
         
     def resetExpectedCap (self):
