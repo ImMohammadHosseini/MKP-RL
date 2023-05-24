@@ -152,9 +152,7 @@ class PPOTrainer(BaseTrainer):
                 np.linalg.norm(ks, axis=1),0))
         
         inst_dist = self.softmax(torch.nan_to_num(torch.tensor(inst_cosin_sim)))
-        inst_dist = Categorical(inst_dist)
         ks_dist = self.softmax(torch.nan_to_num(torch.tensor(ks_cosin_sim)))
-        ks_dist = Categorical(ks_dist)
         
         return inst_dist, ks_dist
     
@@ -165,6 +163,9 @@ class PPOTrainer(BaseTrainer):
     ):
         inst_dist, ks_dist = self._make_distribution(stepGenerate, 
                                                      externalObservation)
+        inst_dist = Categorical(inst_dist)
+        ks_dist = Categorical(ks_dist)
+
         inst_act = inst_dist.sample()
         ks_act = ks_dist.sample()
         inst_log_probs = inst_dist.log_prob(inst_act)
@@ -216,7 +217,7 @@ class PPOTrainer(BaseTrainer):
         prompt = None
         learn_iter = 0
         step_acts = np.zeros((0,2), dtype= int)
-        for i in (0, self.config.generat_link_number+1, self.config.internal_batch):
+        for i in range(0, self.config.generat_link_number+1, self.config.internal_batch):
             stepGenerate, internalObservation, prompt = self.generate_step(
                 externalObservation[0].unsqueeze(0), prompt)
             action, prob = self._choose_actions(stepGenerate, externalObservation)
@@ -236,12 +237,23 @@ class PPOTrainer(BaseTrainer):
     def test_step (
         self,
         externalObservation: torch.tensor,
+        statePrepare: ExternalStatePrepare,
     ):
         prompt = None
-        for i in (0, self.config.generat_link_number+1, self.config.internal_batch):
-            stepGenerate, internalObservation, prompt = self.generate_step(
-                externalObservation[0].unsqueeze(0), prompt)
-            
+        stepGenerate, internalObservation, prompt = self.generate_step(
+            externalObservation[0].unsqueeze(0), prompt, 
+            self.config.generat_link_number)
+        #TODO SAMPLE MAX
+        inst_dist, ks_dist = self._make_distribution(stepGenerate, 
+                                                     externalObservation)
+        inst_act = inst_dist.max(1)[1]
+        ks_act = ks_dist.max(1)[1]
+        acts = torch.cat([inst_act.unsqueeze(dim=1),
+                          ks_act.unsqueeze(dim=1)],dim=1)
+        _, acts = self.internal_reward(acts, statePrepare)
+        
+        return acts
+        
     def _generate_batch (
         self, 
         done: Optional[torch.tensor] = None,
