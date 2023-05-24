@@ -29,25 +29,25 @@ class Knapsack:
         return self.expectedCap
     
     def removeExpectedCap (self, newCap: np.ndarray):
-        self.expectedCap =- newCap
+        self.expectedCap -= newCap
         
     def resetExpectedCap (self):
         self.expectedCap = self.getRemainCap()
         
     def addInstance(self, instWeight, instValue) -> None:
-        
         self.instanceValues = np.append(self.instanceValues, instValue)
         self.instanceWeights = np.append(self.instanceWeights, 
                                          np.expand_dims(instWeight, axis=0), 
                                          axis=0)
+
     def score_ratio (self):
         ratio = 0
         for weight, value in zip(self.instanceWeights, self.instanceValues):
             ratio += value / np.sum(weight)
         return ratio
     
-    def getCap (self):
-        return self.capacities
-    
     def getValues (self) -> int:
         return np.sum(self.instanceValue)
+    
+    def getCap (self):
+        return self.capacities
