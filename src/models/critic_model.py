@@ -9,9 +9,10 @@ from typing import  List
 
 class CriticNetwork (nn.Module):
     def __init__ (self, ext_input_dim, int_input_dim, 
-                  hidden_dims: List = [512, 128, 32, 16]):
+                  hidden_dims: List = [512, 128, 16]):
         super().__init__()
         
+        self.name = 'mlp_cretic'
         self.flatten = nn.Flatten()
         self.ext_input = nn.Sequential(
             nn.Linear(ext_input_dim, 1024),
