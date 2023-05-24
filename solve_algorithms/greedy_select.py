@@ -43,9 +43,8 @@ class GreedySelect():
         self.statePrepare.reset()
         step_acts = np.zeros((0,2), dtype= int)
         no_change = 0
-        print('choose two random action')
         while no_change < self.no_change_long:
-            accepted_actions = self._choose_actions_two_random()
+            accepted_actions = self._choose_actions_greedy_firstFit()
             if len(accepted_actions) == 0:
                no_change +=1
                continue
