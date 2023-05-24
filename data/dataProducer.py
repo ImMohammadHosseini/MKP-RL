@@ -37,5 +37,5 @@ def multiObjectiveDimentional (D:int, M:int, N:int, info):
     weights = np.random.randint(low=info['WEIGHT_LOW'], high=info['WEIGHT_HIGH'], 
                                 size=(N,D))
     values = np.random.randint(low=info['VALUE_LOW'], high=info['VALUE_HIGH'], 
-                               size=N)
+                               size=(N,1))
     return capacities, weights, values

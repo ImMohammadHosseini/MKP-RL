@@ -19,6 +19,7 @@ class TransformerKnapsack (nn.Module):
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__()
+        self.name = 'transformer'
         self.config = config
         self.device = device
         
@@ -28,7 +29,7 @@ class TransformerKnapsack (nn.Module):
                                                   self.device)
         
         encoder_layers = TransformerEncoderLayer(
-            d_model=self.config.output_dim,
+            d_model= self.config.output_dim,
             nhead=self.config.nhead,
             dim_feedforward=self.config.d_hid,
             dropout=self.config.dropout,
@@ -38,7 +39,7 @@ class TransformerKnapsack (nn.Module):
             encoder_layers, self.config.num_encoder_layers
         )
         decoder_layers = TransformerDecoderLayer(
-            d_model=self.config.output_dim,
+            d_model= self.config.output_dim,
             nhead=self.config.nhead,
             dim_feedforward=self.config.d_hid,
             dropout=self.config.dropout,
@@ -54,49 +55,8 @@ class TransformerKnapsack (nn.Module):
         max_len_generate:int,
         
     ):
-        encoder_ACT = [0]*self.config.input_dim
-        encoder_mask = torch.ones_like(external_obs[:,:,0])
-        encoder_mask[torch.all(external_obs == torch.tensor(encoder_ACT), dim=2)] = 0
-        encoder_mask = torch.cat([encoder_mask]*self.config.nhead , 0)
+        pass
         
-        decoder_ACT = [0]*self.config.output_dim
-        start_tokens = [decoder_ACT]
-        prompt_tensor = torch.tensor(
-            self.pad_left(
-                sequence=start_tokens,
-                final_length=max_len_generate + 1,
-                padding_token=decoder_ACT
-            ),
-            dtype=torch.long
-        )
-        prompt_tensor = prompt_tensor.unsqueeze(dim=0)
-        prompt_tensor = torch.cat([prompt_tensor]*external_obs.size()[0], 0)
-        
-        out = prompt_tensor
-        
-        internalObservs = []
-        for _ in range(max_len_generate):
-            internal_obs = out[:,-(max_len_generate+1):,:]
-            internalObservs.append(internal_obs)
-
-            decoder_mask = torch.ones_like(internal_obs[:,:,0])
-            decoder_mask[torch.all(internal_obs == torch.tensor(decoder_ACT), dim=2)] = 0
-            decoder_mask = torch.cat([decoder_mask]*self.config.nhead , 0)
-            
-            memory_mask = torch.matmul(decoder_mask.unsqueeze(2).long(), 
-                                       encoder_mask.unsqueeze(1).long())
-            encoder_mask_sqr = torch.matmul(encoder_mask.unsqueeze(2), 
-                                            encoder_mask.unsqueeze(1))
-            decoder_mask = torch.matmul(decoder_mask.unsqueeze(2), 
-                                        decoder_mask.unsqueeze(1))
-            
-            next_ = self.forward(external_obs, encoder_mask_sqr, internal_obs, 
-                                 decoder_mask, memory_mask)
-           
-            out = torch.cat([out, torch.mean(next_, 1).unsqueeze(1)], dim=1)
-        out = out[:,max_len_generate+1:].squeeze()
-        #TODO check transformer encoder and change in mean
-        return out, internalObservs
      
     def forward (
         self,

@@ -6,6 +6,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import List
 from .knapsack import Knapsack
+from typing import List, Optional
 
 @dataclass
 class ExternalStatePrepare:
@@ -16,15 +17,26 @@ class ExternalStatePrepare:
     
     pickedWeightsValues: List[int] = None
     
-    def __init__ (self, allCapacities: np.ndarray, weights: np.ndarray, 
-                  values: np.ndarray, k_obs_size: int, i_obs_size: int) -> None:
+    def __init__ (
+        self, 
+        allCapacities: np.ndarray, 
+        weights: np.ndarray, 
+        values: np.ndarray, 
+        k_obs_size: Optional[int] = None, 
+        i_obs_size: Optional[int] = None
+    ) -> None:
+        assert len(weights) == len(values)
         self.weights = weights
         self.values = values
-        
         self._setKnapsack(allCapacities)
         
-        self.knapsackObsSize = k_obs_size
-        self.instanceObsSize = i_obs_size
+        if k_obs_size == None: 
+            self.knapsackObsSize = len(allCapacities)
+        else: self.knapsackObsSize = k_obs_size
+        
+        if i_obs_size == None:
+            self.instanceObsSize = len(self.weights)
+        else: self.instanceObsSize = i_obs_size
         self.pad_len = 0
     
     def normalizeData (self, maxCap, maxValue):
@@ -33,29 +45,29 @@ class ExternalStatePrepare:
         for k in self.knapsacks: k.capacities = k.getCap() / maxCap
             
     def reset (self) -> None:
-        self.remainInstanceWeights = self.weights
-        self.remainInstanceValues = self.values
+        shuffle = np.random.permutation(len(self.weights))
+        self.remainInstanceWeights = self.weights[shuffle]
+        self.remainInstanceValues = self.values[shuffle]
         for k in self.knapsacks: k.reset()
         
     def _setKnapsack (self, allCapacities):
         self.knapsacks = [Knapsack(i, c) for i, c in enumerate(allCapacities)]
     
     def getObservation (self) -> np.ndarray:
-        self.pad_len = 0
         self.stateCaps = np.array([k.getRemainCap() \
                                    for k in self.knapsacks])
         self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps),1)), 
                                    axis=1)
-        try:
+        self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
+        if self.pad_len <= 0:
             self.pad_len = 0
             self.stateWeightValues = np.append(self.remainInstanceWeights[
                 :self.instanceObsSize], self.remainInstanceValues[
                     :self.instanceObsSize], axis=1)
             self.remainInstanceWeights = self.remainInstanceWeights[self.instanceObsSize:]
             self.remainInstanceValues = self.remainInstanceValues[self.instanceObsSize:]
-        except: 
-            self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
-            padding = np.zeros((1,self.dim))#np.zeros((self.pad_len, len(self.remainInstanceWeights[0])+1))
+        else: 
+            padding = np.zeros((1, len(self.remainInstanceWeights[0])+1))
             self.stateWeightValues = self._pad_left(np.append(
                 self.remainInstanceWeights, self.remainInstanceValues, axis=1),
                 padding)
@@ -97,7 +109,7 @@ class ExternalStatePrepare:
             weight = self.getObservedInstWeight(inst_act)
             value = self.getObservedInstValue(inst_act)
             assert all(cap >= weight)
-            assert inst_act < self.pad_len
+            assert inst_act >= self.pad_len
             knapSack.addInstance(weight, value)
             deleteList.append(inst_act)
         self.stateWeightValues = np.delete(self.stateWeightValues, 
