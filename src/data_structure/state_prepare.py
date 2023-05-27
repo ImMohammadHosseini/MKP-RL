@@ -45,6 +45,7 @@ class ExternalStatePrepare:
         for k in self.knapsacks: k.capacities = k.getCap() / maxCap
             
     def reset (self) -> None:
+        #print('reset')
         shuffle = np.random.permutation(len(self.weights))
         self.remainInstanceWeights = self.weights[shuffle]
         self.remainInstanceValues = self.values[shuffle]
@@ -54,6 +55,7 @@ class ExternalStatePrepare:
         self.knapsacks = [Knapsack(i, c) for i, c in enumerate(allCapacities)]
     
     def getObservation (self) -> np.ndarray:
+        #print(len(self.remainInstanceWeights)) #TODO pad_len 
         self.stateCaps = np.array([k.getRemainCap() \
                                    for k in self.knapsacks])
         self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps),1)), 
@@ -76,7 +78,7 @@ class ExternalStatePrepare:
                                                self.remainInstanceValues, axis=1),
                                                axis=0)'''
             self.remainInstanceWeights = np.zeros((0, self.weights.shape[1]))
-            self.remainInstanceValues = np.zeros(0)
+            self.remainInstanceValues = np.zeros((0,1))
         
         return self.stateCaps, self.stateWeightValues
 
@@ -114,6 +116,7 @@ class ExternalStatePrepare:
             deleteList.append(inst_act)
         self.stateWeightValues = np.delete(self.stateWeightValues, 
                                            deleteList, axis=0)
+        self.stateWeightValues = self.stateWeightValues[self.pad_len:]
         
         self.remainInstanceWeights = np.append(self.remainInstanceWeights,
                                                self.stateWeightValues[:,:-1],
