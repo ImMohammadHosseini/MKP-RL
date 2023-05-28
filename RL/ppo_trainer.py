@@ -4,7 +4,7 @@
 """
 import torch
 import numpy as np
-from torch.optim import Adam
+from torch.optim import Adam, Rprop
 from typing import List, Optional
 
 from .src.core import (
@@ -52,14 +52,14 @@ class PPOTrainer(BaseTrainer):
         self.critic_model.to(self.device)
             
         if actor_optimizer is None:
-            self.actor_optimizer = Adam(
+            self.actor_optimizer = Rprop(
                 filter(lambda p: p.requires_grad, self.actor_model.parameters()), lr=self.config.actor_lr
             )
         else:
             self.actor_optimizer = actor_optimizer
         
         if critic_optimizer is None:
-            self.critic_optimizer = Adam(
+            self.critic_optimizer = Rprop(
                 filter(lambda p: p.requires_grad, self.critic_model.parameters()), lr=self.config.critic_lr
             )
         else:
@@ -76,7 +76,7 @@ class PPOTrainer(BaseTrainer):
         max_tokens_to_generate: Optional[int] = None,
     ):
         if max_tokens_to_generate is None:
-            max_tokens_to_generate = self.config.internal_batch
+            max_tokens_to_generate = 2*self.config.internal_batch
         encoder_ACT = [0]*self.actor_model.config.input_dim
         encoder_mask = torch.ones_like(external_obs[:,:,0], device=self.device)
         encoder_mask[torch.all(external_obs == torch.tensor(encoder_ACT, 
@@ -90,7 +90,7 @@ class PPOTrainer(BaseTrainer):
             promp_tensor = torch.tensor(
                 self.actor_model.pad_left(
                     sequence=start_tokens,
-                    final_length=self.config.generat_link_number + 1,#
+                    final_length=2 * self.config.generat_link_number,#
                     padding_token=decoder_ACT
                     ),
                 dtype=torch.long
@@ -98,10 +98,11 @@ class PPOTrainer(BaseTrainer):
             promp_tensor = promp_tensor.unsqueeze(dim=0)
             promp_tensor = torch.cat([promp_tensor]*external_obs.size(0), 0)
         
-        out = promp_tensor.to(self.device)
+        promp_tensor = promp_tensor.to(self.device)
         internalObservs = []
-        for _ in range(max_tokens_to_generate):
-            internal_obs = out[:,-(self.config.generat_link_number+1):,:]#
+        generatedInstance = []; generatedKnapsack = []
+        for i in range(max_tokens_to_generate):
+            internal_obs = promp_tensor[:,-(2*self.config.generat_link_number):,:]#
             internalObservs.append(internal_obs)
             
             decoder_mask = torch.ones_like(internal_obs[:,:,0])
@@ -122,24 +123,29 @@ class PPOTrainer(BaseTrainer):
             internal_obs = internal_obs.to(self.device)
             decoder_mask = decoder_mask.to(self.device)
             memory_mask = memory_mask.to(self.device)
-            next_ = self.actor_model(external_obs, encoder_mask_sqr, internal_obs, 
-                                     decoder_mask, memory_mask)
-            out = torch.cat([out, torch.nan_to_num(next_[:,0].unsqueeze(1))], dim=1)#torch.mean(next_, 1)
-            
-        return out[:,-max_tokens_to_generate:].squeeze(), \
+            next_promp, next_ = self.actor_model(external_obs, encoder_mask_sqr, 
+                                             internal_obs, decoder_mask, 
+                                             memory_mask)
+            promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(1)], dim=1)#torch.mean(next_, 1)
+            if i%2 == 0:
+                generatedInstance.append(next_.unsqueeze(1))
+            else:
+                generatedKnapsack.append(next_.unsqueeze(1))
+                
+        return (torch.cat(generatedInstance,1), torch.cat(generatedKnapsack,1)), \
             torch.cat(internalObservs, 0), \
-                out
+                promp_tensor
             
     def _make_distribution (
         self, 
         stepGenerate: torch.tensor, 
         externalObservation: torch.tensor,
     ):
-        generatedInstance = stepGenerate[:, :self.actor_model.config.problem_dim].cpu().detach().numpy()
+        generatedInstance = stepGenerate[0].squeeze().cpu().detach().numpy()#[:, :self.actor_model.config.problem_dim].cpu().detach().numpy()
         insts = externalObservation[0][1:self.actor_model.config.inst_obs_size+1,
                                        :-1].cpu().detach().numpy()
         insts = np.append(insts, np.array([[-1]*self.actor_model.config.problem_dim]),0)
-        generatedKnapsack = stepGenerate[:, self.actor_model.config.problem_dim:].cpu().detach().numpy()
+        generatedKnapsack = stepGenerate[1].squeeze().cpu().detach().numpy()#[:, self.actor_model.config.problem_dim:].cpu().detach().numpy()
         ks = externalObservation[0][self.actor_model.config.inst_obs_size+2:-1,
                                     :-1].cpu().detach().numpy()
         ks = np.append(ks, np.array([[-1]*self.actor_model.config.problem_dim]),0)
@@ -163,10 +169,13 @@ class PPOTrainer(BaseTrainer):
     ):
         inst_dist, ks_dist = self._make_distribution(stepGenerate, 
                                                      externalObservation)
+        #inst_act = inst_dist.max(1)[1]#TODO
+        #ks_act = ks_dist.max(1)[1]
+        
         inst_dist = Categorical(inst_dist)
         ks_dist = Categorical(ks_dist)
 
-        inst_act = inst_dist.sample()
+        inst_act = inst_dist.sample() 
         ks_act = ks_dist.sample()
         inst_log_probs = inst_dist.log_prob(inst_act)
         ks_log_probs = ks_dist.log_prob(ks_act)
@@ -181,11 +190,13 @@ class PPOTrainer(BaseTrainer):
         actions: np.ndarray,
         statePrepare: ExternalStatePrepare,
     ):
+        #num = 0; num1 = 0
         rewards = []; accepted_action = np.zeros((0,2), dtype= int)
         for inst_act, ks_act in actions:
             if inst_act == statePrepare.instanceObsSize or \
             ks_act == statePrepare.knapsackObsSize:
                 rewards.append(0)
+                #num1 += 1
             elif inst_act < statePrepare.pad_len or \
                 inst_act in accepted_action[:,0]:
                 rewards.append(-int(self.info['VALUE_LOW']))
@@ -202,8 +213,10 @@ class PPOTrainer(BaseTrainer):
                     accepted_action = np.append(accepted_action, 
                                                 [[inst_act, ks_act]], 0)
                 else:
-                    rewards.append(-int(self.info['VALUE_HIGH']))
-        
+                    #num += 1
+                    rewards.append(-(int(self.info['VALUE_HIGH']) / \
+                                   (self.actor_model.config.problem_dim * self.info['WEIGHT_LOW'])))
+        #print('num, all, num1', (num, len(actions), num1))
         return torch.tensor(rewards), accepted_action
     
     def steps (
@@ -213,7 +226,7 @@ class PPOTrainer(BaseTrainer):
         done: Optional[torch.tensor] = None,
     ):
         externalObservation = torch.cat(
-            [externalObservation]*self.config.internal_batch, 0)
+            [externalObservation]*(2*self.config.internal_batch), 0)
         prompt = None
         learn_iter = 0
         step_acts = np.zeros((0,2), dtype= int)
@@ -288,7 +301,7 @@ class PPOTrainer(BaseTrainer):
             discount = 1
             a_t = 0
             for k in range(t, self.config.internal_batch-1):
-                
+                #print(rewards[k])
                 a_t += discount*(int(rewards[k]) + self.config.gamma*(float(vals[k+1][0]))*\
                             (1-int(dones[k])) - (float(vals[k][0])))
                 discount *= self.config.gamma*self.config.gae_lambda
@@ -300,10 +313,14 @@ class PPOTrainer(BaseTrainer):
             olp = old_log_probs[batch]
             acts = actions[batch]
             
-            stepGenerate, _, _ = self.generate_step(eo, io, 1)
+            stepGenerate, _, _ = self.generate_step(eo, io, 2)
             inst_dist, ks_dist = self._make_distribution(stepGenerate, 
                                                          eo)
+            inst_dist = Categorical(inst_dist)
+            ks_dist = Categorical(ks_dist)
+            
             critic_value = self.critic_model(eo.to(self.device), io.to(self.device))
+            #print('cv', critic_value.size())
             critic_value = torch.squeeze(critic_value)
             
             new_inst_log_probs = inst_dist.log_prob(acts[:,0])
@@ -316,10 +333,13 @@ class PPOTrainer(BaseTrainer):
                         1+self.config.cliprange)*advantage[batch]
             
             actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
-            returns = advantage[batch] + vals[batch]
+            returns = advantage[batch].unsqueeze(dim=1) + vals[batch]
+            #print('rt', advantage[batch].unsqueeze(dim=1))
             critic_loss = (returns-critic_value)**2
             critic_loss = critic_loss.mean()
             
+            #print('ad', actor_loss)
+            #print('ma', critic_loss)
             actor_loss_leaf = Variable(actor_loss.data, requires_grad=True)
             critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
             

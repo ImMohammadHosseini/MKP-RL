@@ -48,6 +48,8 @@ class TransformerKnapsack (nn.Module):
         self.decoder = TransformerDecoder(
             decoder_layers, self.config.num_decoder_layers
         )
+        
+        self.out_embed = nn.Linear(self.config.output_dim, self.config.problem_dim)
     
     def generate (
         self,
@@ -72,14 +74,17 @@ class TransformerKnapsack (nn.Module):
         decoder_mask = decoder_mask.to(torch.bool)
         memory_mask = memory_mask.to(torch.bool)
         
-        self.embed.to(self.device)
+        self.embed=self.embed.to(self.device)
         obs_embeding = self.embed(external_obs)
         positional = self.position_encode(obs_embeding)  
         self.encoder = self.encoder.to(self.device)
         self.decoder = self.decoder.to(self.device)
-        return self.decoder(internal_obs, self.encoder(positional, encoder_mask), 
-                            decoder_mask, memory_mask)
-        
+        transfer_out = self.decoder(self.position_encode(internal_obs), 
+                                    self.encoder(positional, encoder_mask), 
+                                    decoder_mask, memory_mask)
+        self.out_embed = self.out_embed.to(self.device)
+        return transfer_out[:,0], self.out_embed(transfer_out[:,0])
+    
     def pad_left(self, sequence, final_length, padding_token):
         return [padding_token] * (final_length - len(sequence)) + sequence
     
