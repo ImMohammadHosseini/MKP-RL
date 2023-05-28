@@ -51,12 +51,11 @@ class KnapsackAssignmentEnv (gym.Env):
         )
         
         super().__init__()
-        #self.len_observation = self.observation_space["knapsack"].shape[0]+self.observation_space["instance_value"].shape[0]+3
         self.device = device
         self.statePrepare = state_dataClass
-        #self.statePrepare.normalizeData(info['CAP_HIGH'], info['VALUE_HIGH'])
+        self.statePrepare.normalizeData(info['CAP_HIGH'], info['VALUE_HIGH'])
         self.no_change_long = no_change_long
-        self.no_change = 0
+        
     
     def _get_obs(self) -> dict:
         stateCaps, stateWeightValues = self.statePrepare.getObservation()
@@ -68,46 +67,49 @@ class KnapsackAssignmentEnv (gym.Env):
         
         
     def reset (self): 
+        self.no_change = 0
         #super().reset(seed=seed)
         self.statePrepare.reset()
         externalObservation = self._get_obs()
         ACT = np.zeros((1,self.dim))
-        externalObservation = np.append(ACT, np.append(np.append(externalObservation[
-            "instance_value"], ACT, axis=0), np.append(externalObservation["knapsack"], 
-                                                       ACT, axis=0),axis=0),
-                                                       axis=0)
+        externalObservation = np.append(ACT, np.append(externalObservation[
+            "instance_value"], np.append(externalObservation["knapsack"], 
+                                         ACT, axis=0),axis=0),
+                                         axis=0)
         info = self._get_info()
-        '''if externalObservation.shape[0] < self.len_observation:
-            externalObservation = self._pad_left(externalObservation, self.len_observation,
-                                                 ACT)'''
-        externalObservation = torch.tensor(externalObservation, 
-                                           dtype=torch.float32, 
-                                           device=self.device).unsqueeze(dim=0)        
-        return externalObservation, info
-    
-    def step (self, step_actions):
-        if len(step_actions) == 0: self.no_change += 1
-        else: self.statePrepare.changeNextState(step_actions) 
-        terminated = self.statePrepare.is_terminated() or self.no_change == self.no_change_long 
-        
-        if terminated:
-            externalReward = self.reward_function()
-        else: externalReward = 0
-        
-        externalObservation = self._get_obs()
-        ACT = np.zeros((1,self.dim))
-        externalObservation = np.append(ACT, np.append(np.append(externalObservation[
-            "instance_value"], ACT, axis=0), np.append(externalObservation["knapsack"], 
-                                                       ACT, axis=0),axis=0),
-                                                       axis=0)
         '''if externalObservation.shape[0] < self.len_observation:
             externalObservation = self._pad_left(externalObservation, self.len_observation,
                                                  ACT)'''
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device).unsqueeze(dim=0)
-        info = self._get_info()
+        return externalObservation, info
+    
+    def step (self, step_actions):
+        if len(step_actions) == 0: self.no_change += 1; #print(self.no_change)
+        self.statePrepare.changeNextState(step_actions) 
+        terminated = (self.statePrepare.is_terminated() or self.no_change > self.no_change_long)
         
+        info = self._get_info()
+
+        if terminated:
+            externalReward, remain_cap_ratio = self.reward_function()
+            print(remain_cap_ratio)
+            return None, externalReward, terminated, info
+        else: externalReward = 0
+        
+        externalObservation = self._get_obs()
+        ACT = np.zeros((1,self.dim))
+        externalObservation = np.append(ACT, np.append(externalObservation[
+            "instance_value"], np.append(externalObservation["knapsack"], 
+                                         ACT, axis=0),axis=0),
+                                         axis=0)
+        '''if externalObservation.shape[0] < self.len_observation:
+            externalObservation = self._pad_left(externalObservation, self.len_observation,
+                                                 ACT)'''
+        externalObservation = torch.tensor(externalObservation, 
+                                           dtype=torch.float32, 
+                                           device=self.device).unsqueeze(dim=0) 
         return externalObservation, externalReward, terminated, info
     
     
@@ -115,10 +117,12 @@ class KnapsackAssignmentEnv (gym.Env):
         pass
     
     def reward_function (self):
-        external_reward = 0
+        external_reward = 0; remain_cap_ratio = []
         for ks in self.statePrepare.knapsacks:
             external_reward += ks.score_ratio()
-        return external_reward
+            remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
+        remain_cap_ratio = np.mean(remain_cap_ratio)
+        return external_reward, remain_cap_ratio
     
     
     
