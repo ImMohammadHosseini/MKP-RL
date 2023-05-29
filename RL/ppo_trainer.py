@@ -32,9 +32,11 @@ class PPOTrainer(BaseTrainer):
         config: Optional[PPOConfig] = None,
         actor_model: Optional[torch.nn.Module] = None,
         critic_model: Optional[torch.nn.Module] = None,
+        external_critic_model: Optional[torch.nn.Module] = None,
         device: torch.device = torch.device("cpu"),
         actor_optimizer: Optional[torch.optim.Optimizer] = None,
         critic_optimizer: Optional[torch.optim.Optimizer] = None,
+        external_critic_optimizer: Optional[torch.optim.Optimizer] = None,
     ):
         super().__init__(config)
         
@@ -49,21 +51,30 @@ class PPOTrainer(BaseTrainer):
         
         self.actor_model = actor_model
         self.critic_model = critic_model
-        self.critic_model.to(self.device)
-            
+        self.critic_model = self.critic_model.to(self.device)
+        self.external_critic_model = external_critic_model
+        self.external_critic_model = self.external_critic_model.to(self.device)
+        
         if actor_optimizer is None:
-            self.actor_optimizer = Rprop(
+            self.actor_optimizer = Adam(
                 filter(lambda p: p.requires_grad, self.actor_model.parameters()), lr=self.config.actor_lr
             )
         else:
             self.actor_optimizer = actor_optimizer
         
         if critic_optimizer is None:
-            self.critic_optimizer = Rprop(
+            self.critic_optimizer = Adam(
                 filter(lambda p: p.requires_grad, self.critic_model.parameters()), lr=self.config.critic_lr
             )
         else:
             self.critic_optimizer = critic_optimizer
+            
+        if external_critic_optimizer is None:
+            self.external_critic_optimizer = Adam(
+                filter(lambda p: p.requires_grad, self.external_critic_model.parameters()), lr=self.config.critic_lr
+            )
+        else:
+            self.external_critic_model = external_critic_model
             
         self.savePath = save_path +'/RL/PPOTrainer/'
         if path.exists(self.savePath):
@@ -432,7 +443,6 @@ class PPOTrainer(BaseTrainer):
         statePrepare: ExternalStatePrepare,
     ):
         
-        hope = external_reward + (0.1 * external_reward)
         
     def load_models (self):
         file_path = self.savePath + "/" + self.actor_model.name + ".ckpt"
@@ -445,6 +455,11 @@ class PPOTrainer(BaseTrainer):
         self.critic_model.load_state_dict(checkpoint['model_state_dict'])
         self.critic_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
          
+        file_path = self.savePath + "/" + self.external_critic_model.name + ".ckpt"
+        checkpoint = torch.load(file_path)
+        self.external_critic_model.load_state_dict(checkpoint['model_state_dict'])
+        self.external_critic_model.load_state_dict(checkpoint['optimizer_state_dict'])
+        
     def save_models (self):
         if not path.exists(self.savePath):
             makedirs(self.savePath)
@@ -458,5 +473,11 @@ class PPOTrainer(BaseTrainer):
         torch.save({
             'model_state_dict': self.critic_model.state_dict(),
             'optimizer_state_dict': self.critic_optimizer.state_dict()}, 
+            file_path)
+        
+        file_path = self.savePath + "/" + self.external_critic_model.name + ".ckpt"
+        torch.save({
+            'model_state_dict': self.external_critic_model.state_dict(),
+            'optimizer_state_dict': self.external_critic_optimizer.state_dict()}, 
             file_path)
     
