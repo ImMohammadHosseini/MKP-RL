@@ -11,7 +11,7 @@ from data.dataProducer import multipleKnapSackData, multiObjectiveDimentional
 from configs.ppo_configs import PPOConfig
 from configs.transformers_model_configs import TransformerKnapsackConfig
 from src.models.transformer import TransformerKnapsack
-from src.models.critic_model import CriticNetwork
+from src.models.critic_model import CriticNetwork, ExternalCriticNetwork
 from src.data_structure.state_prepare import ExternalStatePrepare
 from RL.src.env import KnapsackAssignmentEnv
 from solve_algorithms.random_select import RandomSelect
@@ -82,9 +82,11 @@ def rlInitializer (statePrepare):
     model = TransformerKnapsack(modelConfig, DEVICE)
     criticModel = CriticNetwork(modelConfig.max_length*modelConfig.input_dim,
                                 (2*ppoConfig.generat_link_number)*modelConfig.output_dim)
+    externalCriticModel = ExternalCriticNetwork(modelConfig.max_length*modelConfig.input_dim)
     env = KnapsackAssignmentEnv(modelConfig.input_dim, INFOS, statePrepare, 
                                 NO_CHANGE_LONG, DEVICE)
-    ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, ppoConfig, model, criticModel, DEVICE)
+    ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, ppoConfig, model, criticModel,
+                            externalCriticModel, DEVICE)
     
     return env, ppoTrainer
 
