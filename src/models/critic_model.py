@@ -46,7 +46,7 @@ class ExternalCriticNetwork (nn.Module):
         hidden_dims: List = [512, 128, 16]
     ):
         super().__init__()
-        self.name = 'mlp_cretic' 
+        self.name = 'mlp_external_cretic' 
         
         modules = []
         input_dim = ext_input_dim
