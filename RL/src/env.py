@@ -77,9 +77,7 @@ class KnapsackAssignmentEnv (gym.Env):
                                          ACT, axis=0),axis=0),
                                          axis=0)
         info = self._get_info()
-        '''if externalObservation.shape[0] < self.len_observation:
-            externalObservation = self._pad_left(externalObservation, self.len_observation,
-                                                 ACT)'''
+
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device).unsqueeze(dim=0)
@@ -104,9 +102,7 @@ class KnapsackAssignmentEnv (gym.Env):
             "instance_value"], np.append(externalObservation["knapsack"], 
                                          ACT, axis=0),axis=0),
                                          axis=0)
-        '''if externalObservation.shape[0] < self.len_observation:
-            externalObservation = self._pad_left(externalObservation, self.len_observation,
-                                                 ACT)'''
+        
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device).unsqueeze(dim=0) 
@@ -117,12 +113,12 @@ class KnapsackAssignmentEnv (gym.Env):
         pass
     
     def reward_function (self):
-        external_reward = 0; remain_cap_ratio = []
+        external_rewards = []; remain_cap_ratio = []
         for ks in self.statePrepare.knapsacks:
-            external_reward += ks.score_ratio()
+            external_rewards.append(ks.score_ratio())
             remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
         remain_cap_ratio = np.mean(remain_cap_ratio)
-        return external_reward, remain_cap_ratio
+        return external_rewards, remain_cap_ratio
     
     
     
