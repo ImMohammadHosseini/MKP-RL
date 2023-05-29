@@ -32,9 +32,11 @@ class PPOTrainer(BaseTrainer):
         config: Optional[PPOConfig] = None,
         actor_model: Optional[torch.nn.Module] = None,
         critic_model: Optional[torch.nn.Module] = None,
+        external_critic_model: Optional[torch.nn.Module] = None,
         device: torch.device = torch.device("cpu"),
         actor_optimizer: Optional[torch.optim.Optimizer] = None,
         critic_optimizer: Optional[torch.optim.Optimizer] = None,
+        external_critic_optimizer: Optional[torch.optim.Optimizer] = None,
     ):
         super().__init__(config)
         
@@ -49,21 +51,30 @@ class PPOTrainer(BaseTrainer):
         
         self.actor_model = actor_model
         self.critic_model = critic_model
-        self.critic_model.to(self.device)
-            
+        self.critic_model = self.critic_model.to(self.device)
+        self.external_critic_model = external_critic_model
+        self.external_critic_model = self.external_critic_model.to(self.device)
+        
         if actor_optimizer is None:
-            self.actor_optimizer = Rprop(
+            self.actor_optimizer = Adam(
                 filter(lambda p: p.requires_grad, self.actor_model.parameters()), lr=self.config.actor_lr
             )
         else:
             self.actor_optimizer = actor_optimizer
         
         if critic_optimizer is None:
-            self.critic_optimizer = Rprop(
+            self.critic_optimizer = Adam(
                 filter(lambda p: p.requires_grad, self.critic_model.parameters()), lr=self.config.critic_lr
             )
         else:
             self.critic_optimizer = critic_optimizer
+            
+        if external_critic_optimizer is None:
+            self.external_critic_optimizer = Adam(
+                filter(lambda p: p.requires_grad, self.external_critic_model.parameters()), lr=self.config.critic_lr
+            )
+        else:
+            self.external_critic_model = external_critic_model
             
         self.savePath = save_path +'/RL/PPOTrainer/'
         if path.exists(self.savePath):
@@ -123,12 +134,14 @@ class PPOTrainer(BaseTrainer):
     
     def internal_reward (
         self,
-        actions: np.ndarray,
+        actions: torch.tensor,
+        probs: torch.tensor,
         statePrepare: ExternalStatePrepare,
     ):
         #num = 0; num1 = 0
         rewards = []
         accepted_action = np.zeros((0,2), dtype= int)
+        accepted_log_prob = np.array([])
         #for inst_act, ks_act in actions:
         for act_indx in range(0, actions.size(0), 2):
             inst_act = int(actions[act_indx])
@@ -148,6 +161,7 @@ class PPOTrainer(BaseTrainer):
             #    inst_act in accepted_action[:,0]:
             #    rewards.append(-int(self.info['VALUE_LOW']))
             #else:
+            
             knapSack = statePrepare.getKnapsack(ks_act)
             eCap = knapSack.getExpectedCap()
             weight = statePrepare.getObservedInstWeight(inst_act)
@@ -159,7 +173,9 @@ class PPOTrainer(BaseTrainer):
                 rewards.append(np.sum(weight)/np.sum(eCap)/np.sum(weight))
                 knapSack.removeExpectedCap(weight)
                 accepted_action = np.append(accepted_action, 
-                                                [[inst_act, ks_act]], 0)
+                                            [[inst_act, ks_act]], 0)
+                accepted_log_prob = np.append(accepted_log_prob, 
+                                              float(probs[act_indx])+float(probs[act_indx+1]))
             else:
                 #num += 1
                 rewards.append(-(self.info['VALUE_HIGH'] / \
@@ -167,7 +183,7 @@ class PPOTrainer(BaseTrainer):
                 rewards.append(-((self.actor_model.config.problem_dim * self.info['WEIGHT_HIGH']) / \
                                  (self.actor_model.config.problem_dim * self.info['CAP_LOW'])))
         #print('num, all, num1', (num, len(actions), num1))
-        return torch.tensor(rewards, device=self.device), accepted_action
+        return torch.tensor(rewards, device=self.device), accepted_action, accepted_log_prob
     
     def generate_step (
         self,
@@ -255,8 +271,8 @@ class PPOTrainer(BaseTrainer):
             internalObservation = torch.cat([internalObservation, prompt[:,-(2*self.config.generat_link_number):,:]], 0)
             
             act, prob = self._choose_actions(stepGenerate, externalObservation)
-            internalReward, accepted_action = self.internal_reward(
-                act, statePrepare)
+            internalReward, accepted_action, accepted_prob = self.internal_reward(
+                act, prob, statePrepare)
             
             actions = torch.cat([actions, act], 0)
             probs = torch.cat([actions, act], 0)
@@ -270,9 +286,9 @@ class PPOTrainer(BaseTrainer):
                                            internalObservation.to(self.device))
                 for _ in range(self.config.ppo_epochs):
                     dones, batches = self._generate_batch(done)
-                    self.train_minibatch(externalObservation, internalObservation, 
-                                         actions, probs, values.squeeze(), 
-                                         internalRewards, dones, batches)
+                    self.internal_train_minibatch(externalObservation, internalObservation, 
+                                                  actions, probs, values.squeeze(), 
+                                                  internalRewards, dones, batches)
                 actions = torch.tensor([], dtype=torch.int, device=self.device)
                 probs = torch.tensor([], dtype=torch.float64, device=self.device)
                 internalRewards = torch.tensor([], dtype=torch.float64, device=self.device)
@@ -280,7 +296,7 @@ class PPOTrainer(BaseTrainer):
                                                    self.actor_model.config.output_dim], 
                                                   device = self.device)
                     
-        return step_acts
+        return step_acts, accepted_prob
         
         '''for i in range(0, self.config.generat_link_number+1, self.config.internal_batch):
             stepGenerate, internalObservation, prompt = self.generate_step(
@@ -346,7 +362,7 @@ class PPOTrainer(BaseTrainer):
         return dones,\
                 batches
     
-    def train_minibatch (
+    def internal_train_minibatch (
         self, 
         external_obs: torch.tensor,
         internal_obs: torch.tensor,
@@ -418,8 +434,15 @@ class PPOTrainer(BaseTrainer):
             #critic_loss_leaf.backward(retain_graph=True)
             self.critic_optimizer.step()
     
-    def external_train (self, external_reward):
-        hope = external_reward + (0.1 * external_reward)
+    def external_train (
+        self,
+        externalObservation: torch.tensor,
+        actions: torch.tensor,
+        old_log_probs: torch.tensor,
+        external_reward,
+        statePrepare: ExternalStatePrepare,
+    ):
+        
         
     def load_models (self):
         file_path = self.savePath + "/" + self.actor_model.name + ".ckpt"
@@ -432,6 +455,11 @@ class PPOTrainer(BaseTrainer):
         self.critic_model.load_state_dict(checkpoint['model_state_dict'])
         self.critic_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
          
+        file_path = self.savePath + "/" + self.external_critic_model.name + ".ckpt"
+        checkpoint = torch.load(file_path)
+        self.external_critic_model.load_state_dict(checkpoint['model_state_dict'])
+        self.external_critic_model.load_state_dict(checkpoint['optimizer_state_dict'])
+        
     def save_models (self):
         if not path.exists(self.savePath):
             makedirs(self.savePath)
@@ -445,5 +473,11 @@ class PPOTrainer(BaseTrainer):
         torch.save({
             'model_state_dict': self.critic_model.state_dict(),
             'optimizer_state_dict': self.critic_optimizer.state_dict()}, 
+            file_path)
+        
+        file_path = self.savePath + "/" + self.external_critic_model.name + ".ckpt"
+        torch.save({
+            'model_state_dict': self.external_critic_model.state_dict(),
+            'optimizer_state_dict': self.external_critic_optimizer.state_dict()}, 
             file_path)
     
