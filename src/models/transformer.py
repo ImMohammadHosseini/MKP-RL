@@ -53,74 +53,6 @@ class TransformerKnapsack (nn.Module):
         
         self.outer = nn.Linear(self.config.output_dim, self.config.max_length-2)
         self.softmax = nn.Softmax()
-        
-    def generate_step (
-        self,
-        external_obs: torch.tensor,
-        max_tokens_to_generate: int,
-        generat_link_number: int,
-        promp_tensor: Optional[torch.tensor] = None,   
-        
-    ):
-        encoder_ACT = [0]*self.config.input_dim
-        encoder_mask = torch.ones_like(external_obs[:,:,0], device=self.device)
-        encoder_mask[torch.all(external_obs == torch.tensor(encoder_ACT, 
-                                                            device=self.device), 
-                               dim=2)] = 0
-        encoder_mask = torch.cat([encoder_mask]*self.config.nhead , 0)
-
-        decoder_ACT = [0]*self.config.output_dim
-        if promp_tensor == None:
-            start_tokens = [decoder_ACT]
-            promp_tensor = torch.tensor(
-                self.pad_left(
-                    sequence=start_tokens,
-                    final_length=2 * generat_link_number,#
-                    padding_token=decoder_ACT
-                    ),
-                dtype=torch.long
-            )
-            promp_tensor = promp_tensor.unsqueeze(dim=0)
-            promp_tensor = torch.cat([promp_tensor]*external_obs.size(0), 0)
-        
-        promp_tensor = promp_tensor.to(self.device)
-        internalObservs = []
-        generated = []#; generatedKnapsack = []
-        for i in range(max_tokens_to_generate):
-            internal_obs = promp_tensor[:,-(2*generat_link_number):,:]#
-            internalObservs.append(internal_obs)
-            #print('transformer ____any', torch.isnan(torch.cat(internalObservs, 0)).any())
-            decoder_mask = torch.ones_like(internal_obs[:,:,0])
-            decoder_mask[torch.all(internal_obs == torch.tensor(decoder_ACT, 
-                                                                device=self.device), 
-                                   dim=2)] = 0
-            decoder_mask = torch.cat([decoder_mask]*self.config.nhead , 0)
-
-            memory_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2).long(), 
-                                       encoder_mask.to(torch.device('cpu')).unsqueeze(1).long())
-            encoder_mask_sqr = torch.matmul(encoder_mask.to(torch.device('cpu')).unsqueeze(2), 
-                                            encoder_mask.to(torch.device('cpu')).unsqueeze(1))
-            decoder_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2), 
-                                        decoder_mask.to(torch.device('cpu')).unsqueeze(1))
-            
-            external_obs = external_obs.to(self.device)
-            encoder_mask_sqr = encoder_mask_sqr.to(self.device)
-            internal_obs = internal_obs.to(self.device)
-            decoder_mask = decoder_mask.to(self.device)
-            memory_mask = memory_mask.to(self.device)
-            next_promp, next_ = self.forward(external_obs, encoder_mask_sqr, 
-                                             internal_obs, decoder_mask, 
-                                             memory_mask)
-            #print('transPPPPPP ____max', torch.min(next_promp))
-            #print('transPPPPPP ____any', torch.isnan(next_promp).any())
-            promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(1)], dim=1)#torch.mean(next_, 1)
-            '''if i%2 == 0:
-                generatedInstance.append(next_.unsqueeze(1))
-            else:
-                generatedKnapsack.append(next_.unsqueeze(1))'''
-            generated.append(next_.unsqueeze(1))
-        return torch.cat(generated,1), torch.cat(internalObservs, 0), promp_tensor
-        
      
     def forward (
         self,
@@ -141,7 +73,7 @@ class TransformerKnapsack (nn.Module):
         positional = self.position_encode(obs_embeding)  
         self.encoder = self.encoder.to(self.device)
         self.decoder = self.decoder.to(self.device)
-        transfer_out = self.decoder(self.position_encode(internal_obs), 
+        transfer_out = self.decoder(internal_obs, 
                                     self.encoder(positional, encoder_mask), 
                                     decoder_mask, memory_mask)
         self.outer = self.outer.to(self.device)
