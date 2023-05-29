@@ -11,6 +11,8 @@ from torch.nn import (
     TransformerDecoder,
 )
 from .positional_encoding import PositionalEncoding
+from typing import List, Optional
+
 
 class TransformerKnapsack (nn.Module):
     def __init__(
@@ -49,16 +51,8 @@ class TransformerKnapsack (nn.Module):
             decoder_layers, self.config.num_decoder_layers
         )
         
-        self.out_embed = nn.Linear(self.config.output_dim, self.config.problem_dim)
-    
-    def generate (
-        self,
-        external_obs:torch.tensor,
-        max_len_generate:int,
-        
-    ):
-        pass
-        
+        self.outer = nn.Linear(self.config.output_dim, self.config.max_length-2)
+        self.softmax = nn.Softmax()
      
     def forward (
         self,
@@ -79,11 +73,19 @@ class TransformerKnapsack (nn.Module):
         positional = self.position_encode(obs_embeding)  
         self.encoder = self.encoder.to(self.device)
         self.decoder = self.decoder.to(self.device)
-        transfer_out = self.decoder(self.position_encode(internal_obs), 
+        transfer_out = self.decoder(internal_obs, 
                                     self.encoder(positional, encoder_mask), 
                                     decoder_mask, memory_mask)
-        self.out_embed = self.out_embed.to(self.device)
-        return transfer_out[:,0], self.out_embed(transfer_out[:,0])
+        self.outer = self.outer.to(self.device)
+        '''if torch.isnan(transfer_out[:,0]).any() == True:
+            print('trueeeeeeeeeeeeeeeeeeeeee')
+            print('max', torch.max(internal_obs))
+            print('min', torch.min(internal_obs))
+            print('any', torch.isnan(transfer_out[:,0]).any())
+            print('all', torch.isnan(transfer_out[:,0]).all())'''
+
+        return torch.nan_to_num(transfer_out[:,0]), \
+            self.softmax(self.outer(torch.nan_to_num(transfer_out[:,0])))
     
     def pad_left(self, sequence, final_length, padding_token):
         return [padding_token] * (final_length - len(sequence)) + sequence
