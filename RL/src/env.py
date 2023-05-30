@@ -85,16 +85,13 @@ class KnapsackAssignmentEnv (gym.Env):
     
     def step (self, step_actions):
         if len(step_actions) == 0: self.no_change += 1; #print(self.no_change)
-        self.statePrepare.changeNextState(step_actions) 
+        externalReward = self.statePrepare.changeNextState(step_actions) 
         terminated = (self.statePrepare.is_terminated() or self.no_change > self.no_change_long)
         
         info = self._get_info()
 
         if terminated:
-            externalReward, remain_cap_ratio = self.reward_function()
-            print(remain_cap_ratio)
             return None, externalReward, terminated, info
-        else: externalReward = 0
         
         externalObservation = self._get_obs()
         ACT = np.zeros((1,self.dim))
@@ -112,13 +109,13 @@ class KnapsackAssignmentEnv (gym.Env):
     def response_decode (self, responce):
         pass
     
-    def reward_function (self):
-        external_rewards = []; remain_cap_ratio = []
+    def final_score (self):
+        score = 0; remain_cap_ratio = []
         for ks in self.statePrepare.knapsacks:
-            external_rewards.append(ks.score_ratio())
+            score += ks.score_ratio()
             remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
         remain_cap_ratio = np.mean(remain_cap_ratio)
-        return external_rewards, remain_cap_ratio
+        return score, remain_cap_ratio
     
     
     
