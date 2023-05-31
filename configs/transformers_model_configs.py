@@ -19,6 +19,9 @@ class TransformerKnapsackConfig (object):
         num_encoder_layers: int = 2,
         num_decoder_layers: int = 2,
         dropout: float = 0.1,
+        first_train_lr = 0.01,
+        first_train_epoc = 100, 
+        first_train_batch_size = 8,
         batch_first: bool = True,
         **kwargs,
     ) -> None:
@@ -34,5 +37,8 @@ class TransformerKnapsackConfig (object):
         self.dropout = dropout
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
+        self.first_train_lr = first_train_lr
+        self.first_train_epoc = first_train_epoc
+        self.first_train_batch_size = first_train_batch_size
         
         super(TransformerKnapsackConfig, self).__init__(**kwargs)
