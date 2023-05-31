@@ -178,82 +178,21 @@ class PPOTrainer(BaseTrainer):
                                               (float(probs[act_indx])+float(probs[act_indx+1])))
             else:
                 #num += 1
-                rewards.append(-(self.info['VALUE_HIGH'] / \
-                                 (self.actor_model.config.problem_dim * self.info['WEIGHT_LOW'])))
-                rewards.append(-((self.actor_model.config.problem_dim * self.info['WEIGHT_HIGH']) / \
-                                 (self.actor_model.config.problem_dim * self.info['CAP_LOW'])))
+                rewards.append(0)#-(self.info['VALUE_HIGH'] / \
+                                 #(self.actor_model.config.problem_dim * self.info['WEIGHT_LOW'])))
+                rewards.append(0)#-((self.actor_model.config.problem_dim * self.info['WEIGHT_HIGH']) / \
+                                 #(self.actor_model.config.problem_dim * self.info['CAP_LOW'])))
         #print('num, all, num1', (num, len(actions), num1))
         return torch.tensor(rewards, device=self.device), accepted_action, accepted_log_prob
     
-    def generate_step (
-        self,
-        external_obs: torch.tensor,
-        max_tokens_to_generate: int,
-        generat_link_number: int,
-        promp_tensor: Optional[torch.tensor] = None,   
-        
-    ):
-        encoder_ACT = [0]*self.actor_model.config.input_dim
-        encoder_mask = torch.ones_like(external_obs[:,:,0], device=self.device)
-        encoder_mask[torch.all(external_obs == torch.tensor(encoder_ACT, 
-                                                            device=self.device), 
-                               dim=2)] = 0
-        encoder_mask = torch.cat([encoder_mask]*self.actor_model.config.nhead , 0)
-
-        decoder_ACT = [0]*self.actor_model.config.output_dim
-        if promp_tensor == None:
-            start_tokens = [decoder_ACT]
-            promp_tensor = torch.tensor(
-                self.actor_model.pad_left(
-                    sequence=start_tokens,
-                    final_length=2 * generat_link_number,#
-                    padding_token=decoder_ACT
-                    ),
-                dtype=torch.long
-            )
-            promp_tensor = promp_tensor.unsqueeze(dim=0)
-            promp_tensor = torch.cat([promp_tensor]*external_obs.size(0), 0)
-        
-        promp_tensor = promp_tensor.to(self.device)
-        internalObservs = []
-        generated = []#; generatedKnapsack = []
-        for i in range(max_tokens_to_generate):
-            internal_obs = promp_tensor[:,-(2*generat_link_number):,:]#
-            internalObservs.append(internal_obs)
-            #print('transformer ____any', torch.isnan(torch.cat(internalObservs, 0)).any())
-            decoder_mask = torch.ones_like(internal_obs[:,:,0])
-            decoder_mask[torch.all(internal_obs == torch.tensor(decoder_ACT, 
-                                                                device=self.device), 
-                                   dim=2)] = 0
-            decoder_mask = torch.cat([decoder_mask]*self.actor_model.config.nhead , 0)
-            memory_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2).long(), 
-                                       encoder_mask.to(torch.device('cpu')).unsqueeze(1).long())
-            encoder_mask_sqr = torch.matmul(encoder_mask.to(torch.device('cpu')).unsqueeze(2), 
-                                            encoder_mask.to(torch.device('cpu')).unsqueeze(1))
-            decoder_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2), 
-                                        decoder_mask.to(torch.device('cpu')).unsqueeze(1))
-            
-            external_obs = external_obs.to(self.device)
-            encoder_mask_sqr = encoder_mask_sqr.to(self.device)
-            internal_obs = internal_obs.to(self.device)
-            decoder_mask = decoder_mask.to(self.device)
-            memory_mask = memory_mask.to(self.device)
-            next_promp, next_ = self.actor_model(external_obs, encoder_mask_sqr, 
-                                             internal_obs, decoder_mask, 
-                                             memory_mask)
-            #print('transPPPPPP ____max', torch.min(next_promp))
-            #print('transPPPPPP ____any', torch.isnan(next_promp).any())
-            promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(1)], dim=1)#torch.mean(next_, 1)
-            #generatedKnapsack.append(next_.unsqueeze(1))
-            generated.append(next_.unsqueeze(1))
-        return torch.cat(generated,1), promp_tensor #, torch.cat(internalObservs, 0)
-        
+    
     def steps (
         self,
         externalObservation: torch.tensor,
         statePrepare: ExternalStatePrepare,
         done: Optional[torch.tensor] = None,
     ):
+        len_act = 0
         externalObservation = torch.cat(
             [externalObservation]*(2*self.config.internal_batch), 0)
         prompt = None
@@ -266,12 +205,13 @@ class PPOTrainer(BaseTrainer):
                                            self.actor_model.config.output_dim], 
                                           device = self.device)
         for i in range(0, self.config.generat_link_number):
-            stepGenerate, prompt = self.generate_step(externalObservation[0].unsqueeze(0), 2, 
-                                                      self.config.generat_link_number, prompt)
+            stepGenerate, prompt = self.actor_model.generate_step(externalObservation[0].unsqueeze(0), 2, 
+                                                                  self.config.generat_link_number, prompt)
             internalObservation = torch.cat([internalObservation, prompt[:,-(2*self.config.generat_link_number+1):-1,:]], 0)
             internalObservation = torch.cat([internalObservation, prompt[:,-(2*self.config.generat_link_number):,:]], 0)
             
             act, prob = self._choose_actions(stepGenerate, externalObservation)
+            len_act += int(act.size(0)) / 2#TODO delete
             internalReward, accepted_action, accepted_prob = self.internal_reward(
                 act, prob, statePrepare)
             
@@ -284,8 +224,8 @@ class PPOTrainer(BaseTrainer):
             else:
                 prompt = prompt[:,:-2]
             if i % self.config.internal_batch == self.config.internal_batch-1:
-                values = self.critic_model(externalObservation.to(self.device))#, 
-                                           #internalObservation.to(self.device))
+                values = self.critic_model(externalObservation.to(self.device), 
+                                           internalObservation.to(self.device))
                 for _ in range(self.config.ppo_epochs):
                     dones, batches = self._generate_batch(done)
                     self._train_minibatch(2*self.config.internal_batch, externalObservation, 
@@ -298,7 +238,8 @@ class PPOTrainer(BaseTrainer):
                 internalObservation = torch.zeros([0, 2*self.config.generat_link_number, 
                                                    self.actor_model.config.output_dim], 
                                                   device = self.device)
-                    
+         
+        print('act:', len_act, 'acp_act', len(step_acts))
         return step_acts, step_prob
         
         '''for i in range(0, self.config.generat_link_number+1, self.config.internal_batch):
@@ -403,8 +344,8 @@ class PPOTrainer(BaseTrainer):
             #actions = torch.tensor(actions.data, device=torch.device('cpu'))
             acts = actions[batch]
             
-            stepGenerate, _ = self.generate_step(eo, 1, self.config.generat_link_number, 
-                                                 io)
+            stepGenerate, _ = self.actor_model.generate_step(eo, 1, self.config.generat_link_number, 
+                                                             io)
             #print(stepGenerate.size())
             #inst_dist, ks_dist = self._make_distribution(stepGenerate, 
             #                                             eo)
