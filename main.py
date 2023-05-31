@@ -5,12 +5,13 @@
 import optparse
 import torch
 import numpy as np
+from os import path
 from tqdm import tqdm
 from RL.src.core import LengthSampler
 from data.dataProducer import multipleKnapSackData, multiObjectiveDimentional
 from configs.ppo_configs import PPOConfig
 from configs.transformers_model_configs import TransformerKnapsackConfig
-from src.models.transformer import TransformerKnapsack
+from src.transformer_trainer import TransformerTrainer
 from src.models.critic_model import CriticNetwork, ExternalCriticNetwork
 from src.data_structure.state_prepare import ExternalStatePrepare
 from RL.src.env import KnapsackAssignmentEnv
@@ -44,7 +45,7 @@ INFOS = {'CAP_LOW':40,#150,
 KNAPSACK_OBS_SIZE = opts.kps
 INSTANCE_OBS_SIZE = 100#2 * KNAPSACK_OBS_SIZE
 NO_CHANGE_LONG = 5#int(1/8*(opts.instances // INSTANCE_OBS_SIZE))
-N_TRAIN_STEPS = 300
+N_TRAIN_STEPS = 100
 N_TEST_STEPS = 10
 SAVE_PATH = 'pretrained/save_models'
 ALGORITHMS_NAME = ['PPOTrainer', 'A2C', 'RandomSelect', 'GreedySelect']
@@ -64,9 +65,9 @@ def dataInitializer ():
 
 def randomAlgorithm (statePrepare):
     test_score_history = []
-    for i in tqdm(range(N_TEST_STEPS)):
-        random_select = RandomSelect (statePrepare)
-        random_select.test_step()#TODO
+    #for i in tqdm(range(N_TEST_STEPS)):
+    random_select = RandomSelect (statePrepare)
+    random_select.test_step()#TODO
     
 def greedyAlgorithm (statePrepare):
     test_score_history = []
@@ -79,14 +80,18 @@ def rlInitializer (statePrepare):
     ppoConfig = PPOConfig()
     modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
                                             opts.dim)
-    model = TransformerKnapsack(modelConfig, DEVICE)
+    transformerTrainer = TransformerTrainer(save_path=SAVE_PATH, 
+                                            model_config=modelConfig, device=DEVICE)
+    if path.exists(transformerTrainer.savePath):
+        transformerTrainer.load_model()
+    else: transformerTrainer.train(opts.var, opts.kps, opts.instances, INFOS)
     criticModel = CriticNetwork(modelConfig.max_length*modelConfig.input_dim,
                                 (2*ppoConfig.generat_link_number)*modelConfig.output_dim)
     externalCriticModel = ExternalCriticNetwork(modelConfig.max_length*modelConfig.input_dim)
     env = KnapsackAssignmentEnv(modelConfig.input_dim, INFOS, statePrepare, 
                                 NO_CHANGE_LONG, DEVICE)
-    ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, ppoConfig, model, criticModel,
-                            externalCriticModel, DEVICE)
+    ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, ppoConfig, transformerTrainer.model, 
+                            criticModel, externalCriticModel, DEVICE)
     
     return env, ppoTrainer
 
@@ -113,7 +118,7 @@ def rl_test (env, ppoTrainer):
     print('avg_test_scor:', avg_score)
 
 def rl_train (env, ppoTrainer):
-    best_score = 13#INFOS['VALUE_LOW']
+    best_score = 15.9#INFOS['VALUE_LOW']
     score_history = []
     n_steps = 0
     for i in tqdm(range(N_TRAIN_STEPS)):#TODO CHECK THE EPOCH
@@ -125,28 +130,29 @@ def rl_train (env, ppoTrainer):
         accepted_prob = torch.tensor([], device=DEVICE)
         externalRewards = torch.tensor([], device=DEVICE)
         while not done:
-            print(i)
             step_acts, step_prob = ppoTrainer.steps(externalObservation, 
                                                     env.statePrepare,
                                                     done)
-            print(len(step_acts))
-            externalObservation, externalReward, done, info = env.step(step_acts)
             externalObservations = torch.cat([externalObservations]+[externalObservation]*len(step_acts), 0)
+
+            externalObservation, externalReward, done, info = env.step(step_acts)
+            externalRewards = torch.cat([externalRewards, torch.tensor(externalReward, device=DEVICE)], 0)
             accepted_act = torch.cat([accepted_act, torch.tensor(step_acts, device=DEVICE)], 0)
             accepted_prob = torch.cat([accepted_prob, torch.tensor(step_prob, device=DEVICE)])
-            externalRewards = torch.cat([externalRewards, torch.tensor(externalReward, device=DEVICE)])
             n_steps += 1
-        ppoTrainer.external_train(externalObservations, accepted_act, accepted_prob,
-                                  externalRewards, statePrepare)
+        #ppoTrainer.external_train(externalObservations, accepted_act, accepted_prob,
+        #                          torch.tensor(externalRewards, device=DEVICE), 
+        #                          statePrepare)
         #score += externalReward
-        score_history.append(np.sum(externalRewards))
+        score, remain_cap_ratio = env.final_score()
+        score_history.append(np.sum(score))
         avg_score = np.mean(score_history[-10:])
 
         if avg_score > best_score:
             best_score = avg_score
             ppoTrainer.save_models()
-        print('episode', i, 'score %.1f' % np.sum(externalRewards), 'avg score %.1f' % avg_score,
-                'time_steps', n_steps)
+        print('episode', i, 'score %.1f' % score, 'avg score %.1f' % avg_score,
+                'time_steps', n_steps, 'remain_cap_ratio', remain_cap_ratio)
     x = [i+1 for i in range(len(score_history))]
     
     figure_file = 'plots/ks_problem.png'
@@ -156,8 +162,8 @@ def rl_train (env, ppoTrainer):
 if __name__ == '__main__':
     
     statePrepare = dataInitializer()
-    #randomAlgorithm(statePrepare)
-    #greedyAlgorithm(statePrepare)
+    randomAlgorithm(statePrepare)
+    greedyAlgorithm(statePrepare)
     env, ppoTrainer = rlInitializer(statePrepare)
     #rl_test(env, ppoTrainer)#TODO waaayyy
     rl_train(env, ppoTrainer)
