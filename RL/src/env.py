@@ -72,8 +72,8 @@ class KnapsackAssignmentEnv (gym.Env):
         self.statePrepare.reset()
         externalObservation = self._get_obs()
         ACT = np.zeros((1,self.dim))
-        externalObservation = np.append(ACT, np.append(externalObservation[
-            "instance_value"], np.append(externalObservation["knapsack"], 
+        externalObservation = np.append(ACT, np.append(np.append(externalObservation[
+            "instance_value"],ACT, axis=0), np.append(externalObservation["knapsack"], 
                                          ACT, axis=0),axis=0),
                                          axis=0)
         info = self._get_info()
@@ -95,8 +95,8 @@ class KnapsackAssignmentEnv (gym.Env):
         
         externalObservation = self._get_obs()
         ACT = np.zeros((1,self.dim))
-        externalObservation = np.append(ACT, np.append(externalObservation[
-            "instance_value"], np.append(externalObservation["knapsack"], 
+        externalObservation = np.append(ACT, np.append(np.append(externalObservation[
+            "instance_value"],ACT, axis=0), np.append(externalObservation["knapsack"], 
                                          ACT, axis=0),axis=0),
                                          axis=0)
         
