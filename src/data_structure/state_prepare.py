@@ -19,16 +19,17 @@ class ExternalStatePrepare:
     
     def __init__ (
         self, 
-        allCapacities: np.ndarray, 
-        weights: np.ndarray, 
-        values: np.ndarray, 
+        allCapacities: Optional[np.ndarray] = None, 
+        weights: Optional[np.ndarray] = None, 
+        values: Optional[np.ndarray] = None, 
         k_obs_size: Optional[int] = None, 
         i_obs_size: Optional[int] = None
     ) -> None:
-        assert len(weights) == len(values)
-        self.weights = weights
-        self.values = values
-        self._setKnapsack(allCapacities)
+        if not weights is None and not values is None and not allCapacities is None:
+            assert len(weights) == len(values)
+            self.weights = weights
+            self.values = values
+            self._setKnapsack(allCapacities)
         
         if k_obs_size == None: 
             self.knapsackObsSize = len(allCapacities)
@@ -39,11 +40,22 @@ class ExternalStatePrepare:
         else: self.instanceObsSize = i_obs_size
         self.pad_len = 0
     
+    def set_new_problem (
+        self, 
+        allCapacities: np.ndarray, 
+        weights: np.ndarray, 
+        values: np.ndarray,
+    ):
+        assert len(weights) == len(values)
+        self.weights = weights
+        self.values = values
+        self._setKnapsack(allCapacities)
+    
     def normalizeData (self, maxCap, maxValue):
         self.weights = self.weights / maxCap
         self.values = self.values / maxValue
         for k in self.knapsacks: k.capacities = k.getCap() / maxCap
-            
+        
     def reset (self) -> None:
         #print('reset')
         shuffle = np.random.permutation(len(self.weights))
@@ -105,14 +117,20 @@ class ExternalStatePrepare:
     
     def changeNextState (self, acts):
         deleteList = []
+        external_reward = []
         for inst_act, ks_act in acts:
             knapSack = self.getKnapsack(ks_act)
             cap = knapSack.getRemainCap()
             weight = self.getObservedInstWeight(inst_act)
             value = self.getObservedInstValue(inst_act)
+            if not all(cap >= weight):
+                print(knapSack.getExpectedCap())
+                print(cap)
+                print(weight)
             assert all(cap >= weight)
             assert inst_act >= self.pad_len
             knapSack.addInstance(weight, value)
+            external_reward.append(value / np.sum(weight))
             deleteList.append(inst_act)
         self.stateWeightValues = np.delete(self.stateWeightValues, 
                                            deleteList, axis=0)
@@ -125,3 +143,5 @@ class ExternalStatePrepare:
                                               np.expand_dims(self.stateWeightValues[:,-1], axis=1),
                                               axis=0)
         for k in self.knapsacks: k.resetExpectedCap()
+        
+        return external_reward
