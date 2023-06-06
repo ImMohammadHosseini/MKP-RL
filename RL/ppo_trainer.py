@@ -108,7 +108,8 @@ class PPOTrainer(BaseTrainer):
     
     def _choose_actions (
         self, 
-        stepGenerate: torch.tensor, 
+        generatedInstance: torch.tensor, 
+        generatedKnapsack: torch.tensor, 
         externalObservation: torch.tensor,
     ):
         #inst_dist, ks_dist = self._make_distribution(stepGenerate, 
@@ -116,21 +117,21 @@ class PPOTrainer(BaseTrainer):
         #inst_act = inst_dist.max(1)[1]#TODO
         #ks_act = ks_dist.max(1)[1]
         
-        generated_dist = Categorical(stepGenerate)
-        #ks_dist = Categorical(ks_dist)
+        inst_dist = Categorical(generatedInstance)
+        ks_dist = Categorical(generatedKnapsack)
         
-        acts = generated_dist.sample().squeeze()
-        #inst_act = inst_dist.sample() 
-        #ks_act = ks_dist.sample()
-        #inst_log_probs = inst_dist.log_prob(inst_act)
-        #ks_log_probs = ks_dist.log_prob(ks_act)
+        #acts = generated_dist.sample().squeeze()
+        inst_act = inst_dist.sample() 
+        ks_act = ks_dist.sample()
+        inst_log_probs = inst_dist.log_prob(inst_act)
+        ks_log_probs = ks_dist.log_prob(ks_act)
         #print(acts.unsqueeze(dim=1).size())
-        #acts = torch.cat([inst_act.unsqueeze(dim=1),
-        #                  ks_act.unsqueeze(dim=1)],dim=1)
-        #log_probs = inst_log_probs + ks_log_probs
-        log_probs = generated_dist.log_prob(acts)
+        acts = torch.cat([inst_act,
+                          ks_act],dim=1)
+        log_probs = inst_log_probs + ks_log_probs
+        #log_probs = generated_dist.log_prob(acts)
         
-        return acts, log_probs.squeeze()
+        return acts, log_probs#.squeeze()
     
     def internal_reward (
         self,
@@ -142,15 +143,16 @@ class PPOTrainer(BaseTrainer):
         rewards = []
         accepted_action = np.zeros((0,2), dtype= int)
         accepted_log_prob = np.array([])
-        #for inst_act, ks_act in actions:
-        for act_indx in range(0, actions.size(0), 2):
-            inst_act = int(actions[act_indx])
-            ks_act = int(actions[act_indx+1]) - statePrepare.instanceObsSize 
-            if ks_act < 0 or \
-                inst_act < statePrepare.pad_len or inst_act >= statePrepare.instanceObsSize or \
-                inst_act in accepted_action[:,0]: 
-                    rewards.append(0)#-self.info['VALUE_LOW'])
-                    rewards.append(0)#-((self.actor_model.config.problem_dim * self.info['WEIGHT_HIGH']) / \
+        for index, act in enumerate(actions):
+            inst_act = int(act[0])
+            ks_act = int(act[1])
+        #for act_indx in range(0, actions.size(0), 2):
+            #inst_act = int(actions[act_indx])
+            #ks_act = int(actions[act_indx+1]) - statePrepare.instanceObsSize 
+            #if ks_act < 0 or \ or inst_act >= statePrepare.instanceObsSize
+            if inst_act < statePrepare.pad_len or inst_act in accepted_action[:,0]: 
+                    rewards.append(-self.info['VALUE_LOW'])
+                    #rewards.append(0)#-((self.actor_model.config.problem_dim * self.info['WEIGHT_HIGH']) / \
                                      #(self.actor_model.config.problem_dim * self.info['CAP_LOW'])))
                     continue
             #if inst_act == statePrepare.instanceObsSize or \
@@ -170,17 +172,18 @@ class PPOTrainer(BaseTrainer):
             if all(eCap >= weight):
                 value = statePrepare.getObservedInstValue(inst_act)
                 rewards.append(value / np.sum(weight))
-                rewards.append(np.sum(weight)/np.sum(eCap)/np.sum(weight))
+                #rewards.append(np.sum(weight)/np.sum(eCap)/np.sum(weight))
                 knapSack.removeExpectedCap(weight)
                 accepted_action = np.append(accepted_action, 
                                             [[inst_act, ks_act]], 0)
-                accepted_log_prob = np.append(accepted_log_prob, 
-                                              (float(probs[act_indx])+float(probs[act_indx+1])))
+                accepted_log_prob = np.append(accepted_log_prob, float(probs[index]))
+                #accepted_log_prob = np.append(accepted_log_prob, 
+                #                              (float(probs[act_indx])+float(probs[act_indx+1])))
             else:
                 #num += 1
                 rewards.append(0)#-(self.info['VALUE_HIGH'] / \
                                  #(self.actor_model.config.problem_dim * self.info['WEIGHT_LOW'])))
-                rewards.append(0)#-((self.actor_model.config.problem_dim * self.info['WEIGHT_HIGH']) / \
+                #rewards.append(0)#-((self.actor_model.config.problem_dim * self.info['WEIGHT_HIGH']) / \
                                  #(self.actor_model.config.problem_dim * self.info['CAP_LOW'])))
         #print('num, all, num1', (num, len(actions), num1))
         return torch.tensor(rewards, device=self.device), accepted_action, accepted_log_prob
@@ -194,24 +197,24 @@ class PPOTrainer(BaseTrainer):
     ):
         len_act = 0
         externalObservation = torch.cat(
-            [externalObservation]*(2*self.config.internal_batch), 0)
+            [externalObservation]*(self.config.internal_batch), 0)#2*
         prompt = None
         step_acts = np.zeros((0,2), dtype= int)
         step_prob = np.array([])
         actions = torch.tensor([], dtype=torch.int, device=self.device)
         probs = torch.tensor([], dtype=torch.float64, device=self.device)
         internalRewards = torch.tensor([], dtype=torch.float64, device=self.device)
-        internalObservation = torch.zeros([0, 2*self.config.generat_link_number, 
+        internalObservation = torch.zeros([0, self.config.generat_link_number, #2*
                                            self.actor_model.config.output_dim], 
                                           device = self.device)
         for i in range(0, self.config.generat_link_number):
-            stepGenerate, prompt = self.actor_model.generate_step(externalObservation[0].unsqueeze(0), 2, 
+            generatedInstance, generatedKnapsack, prompt = self.actor_model.generate_step(externalObservation[0].unsqueeze(0), 1, #2
                                                                   self.config.generat_link_number, prompt)
-            internalObservation = torch.cat([internalObservation, prompt[:,-(2*self.config.generat_link_number+1):-1,:]], 0)
-            internalObservation = torch.cat([internalObservation, prompt[:,-(2*self.config.generat_link_number):,:]], 0)
+            #internalObservation = torch.cat([internalObservation, prompt[:,-(self.config.generat_link_number+1):-1,:]], 0)#2*
+            internalObservation = torch.cat([internalObservation, prompt[:,-(self.config.generat_link_number):,:]], 0)#2*
             
-            act, prob = self._choose_actions(stepGenerate, externalObservation)
-            len_act += int(act.size(0)) / 2#TODO delete
+            act, prob = self._choose_actions(generatedInstance, generatedKnapsack, externalObservation)
+            len_act += int(act.size(0)) #TODO delete  / 2
             internalReward, accepted_action, accepted_prob = self.internal_reward(
                 act, prob, statePrepare)
             
@@ -222,24 +225,24 @@ class PPOTrainer(BaseTrainer):
                 step_acts = np.append(step_acts, accepted_action, 0)
                 step_prob = np.append(step_prob, accepted_prob)
             else:
-                prompt = prompt[:,:-2]
+                prompt = prompt[:,:-1]#-2
             if i % self.config.internal_batch == self.config.internal_batch-1:
                 values = self.critic_model(externalObservation.to(self.device), 
                                            internalObservation.to(self.device))
                 for _ in range(self.config.ppo_epochs):
                     dones, batches = self._generate_batch(done)
-                    self._train_minibatch(2*self.config.internal_batch, externalObservation, 
+                    self._train_minibatch(self.config.internal_batch, externalObservation, #2*
                                           actions, probs, values.squeeze(), 
                                           internalRewards, batches, 
                                           internalObservation, dones)
                 actions = torch.tensor([], dtype=torch.int, device=self.device)
                 probs = torch.tensor([], dtype=torch.float64, device=self.device)
                 internalRewards = torch.tensor([], dtype=torch.float64, device=self.device)
-                internalObservation = torch.zeros([0, 2*self.config.generat_link_number, 
+                internalObservation = torch.zeros([0, self.config.generat_link_number, #2*
                                                    self.actor_model.config.output_dim], 
                                                   device = self.device)
          
-        print('act:', len_act, 'acp_act', len(step_acts))
+        #print('act:', len_act, 'acp_act', len(step_acts))
         return step_acts, step_prob
         
         '''for i in range(0, self.config.generat_link_number+1, self.config.internal_batch):
@@ -298,7 +301,7 @@ class PPOTrainer(BaseTrainer):
         if batch_size == None:
             batch_size = self.config.ppo_batch_size
         if n_states == None:
-            n_states = 2*self.config.internal_batch
+            n_states = self.config.internal_batch#2*
         batch_start = np.arange(0, n_states, batch_size)
         indices = np.arange(n_states, dtype=np.int64)
         np.random.shuffle(indices)
@@ -344,25 +347,25 @@ class PPOTrainer(BaseTrainer):
             #actions = torch.tensor(actions.data, device=torch.device('cpu'))
             acts = actions[batch]
             
-            stepGenerate, _ = self.actor_model.generate_step(eo, 1, self.config.generat_link_number, 
+            generatedInstance, generatedKnapsack, _ = self.actor_model.generate_step(eo, 1, self.config.generat_link_number, 
                                                              io)
             #print(stepGenerate.size())
             #inst_dist, ks_dist = self._make_distribution(stepGenerate, 
             #                                             eo)
-            #inst_dist = Categorical(inst_dist)
-            #ks_dist = Categorical(ks_dist)
-            new_dist = Categorical (stepGenerate)
+            new_inst_dist = Categorical(generatedInstance)
+            new_ks_dist = Categorical(generatedKnapsack)
+            #new_dist = Categorical (stepGenerate)
             
             if mode == "internal":
                 critic_value = self.critic_model(eo.to(self.device), io.to(self.device))
-                new_log_probs = new_dist.log_prob(acts)
+                new_log_probs = new_inst_dist.log_prob(acts[:,0]) + new_ks_dist.log_prob(acts[:,1])
+                #new_log_probs = new_dist.log_prob(acts)
 
             else:
                 critic_value = self.external_critic_model(eo.to(self.device))
-                new_log_probs = new_dist.log_prob(acts[:,0]) + new_dist.log_prob(acts[:,1])
+                new_log_probs = new_inst_dist.log_prob(acts[:,0]) + new_ks_dist.log_prob(acts[:,1])
 
 
-            #print('cv', critic_value.size())
             critic_value = torch.squeeze(critic_value)
             
             #new_inst_log_probs = inst_dist.log_prob(acts[:,0])
@@ -377,7 +380,6 @@ class PPOTrainer(BaseTrainer):
             
             actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
             returns = advantage[batch].unsqueeze(dim=1) + vals[batch]
-            #print('rt', advantage[batch].unsqueeze(dim=1))
             critic_loss = (returns-critic_value)**2
             critic_loss = critic_loss.mean()
             
