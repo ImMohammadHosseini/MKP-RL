@@ -4,9 +4,9 @@
 
 import torch
 import numpy as np
-from torch.optim import Adam, Rprop
+from torch.optim import Adam, RMSprop
 from torch.utils.data import DataLoader, TensorDataset
-from typing import List, Optional
+from typing import Optional
 from torch.distributions.categorical import Categorical
 from .models.transformer import TransformerKnapsack
 from .data_structure.state_prepare import ExternalStatePrepare
@@ -34,8 +34,7 @@ class TransformerTrainer:
         else: self.model = model 
         
         if optimizer is None:
-            self.optimizer = Adam(
-                filter(lambda p: p.requires_grad, self.model.parameters()), 
+            self.optimizer = Adam(self.model.parameters(), 
                 lr=self.model.config.first_train_lr
             )
         else: self.optimizer = optimizer
@@ -52,19 +51,37 @@ class TransformerTrainer:
     ):
         data = self.get_data (variation, kps_n, instances_n, info)
         
-        cnt_wait=0; best=1e9; loss_list=[]; prompt=None
+        cnt_wait=0; best=1e9; loss_list=[]; 
         for epoch in range(self.model.config.first_train_epoc):
             losses = []
-            
             for obs in data:
-                self.model.train()
-                self.optimizer.zero_grad()
-                stepGenerate, _ = self.model.generate_step(obs[0], 100, 50, prompt)
-                loss = self.get_loss(stepGenerate)
-                loss.backward()
-                self.optimizer.step()
-                #float(loss['loss'])
-                losses.append(float(loss))
+                rand_indx_instance = np.random.randint(low=1, high=instances_n+1,
+                                                       size=(self.model.config.first_train_batch_size,50))
+                rand_indx_knapsack = np.random.randint(low=instances_n+2, 
+                                                       high=self.model.config.max_length-1,
+                                                       size=(self.model.config.first_train_batch_size,50))
+                target = np.zeros((self.model.config.first_train_batch_size,100))                                      
+                target[:, ::2]=rand_indx_instance
+                target[:, 1::2]=rand_indx_knapsack
+                start_prompt_length = np.random.randint(0, 101)
+                for prompt_length in range(start_prompt_length, 99): 
+                    #print(prompt_length)
+                    prompt = torch.cat([obs[0][i][target[i][:prompt_length]].unsqueeze(0) for i in range(
+                        self.model.config.first_train_batch_size)], 0)
+
+                    self.model.train()
+                    self.optimizer.zero_grad()
+                    stepGenerate, _ = self.model.generate_step(obs[0], 1, 50, prompt)
+                    if prompt_length % 2 == 1:
+                        loss_target = target[:,prompt_length+1] - 1
+                    else:
+                        loss_target = target[:,prompt_length+1] - 2
+                    loss = self.get_loss(stepGenerate, torch.tensor(
+                        loss_target, dtype=torch.long, device=self.device), prompt_length)
+                    loss.backward()
+                    self.optimizer.step()
+                    #float(loss['loss'])
+                    losses.append(float(loss))
             epoch_loss = sum(losses) / len(losses)
             loss_list.append(epoch_loss)
             print(f'Epoch: {epoch:03d}, Loss: {epoch_loss:.4f}')
@@ -79,28 +96,45 @@ class TransformerTrainer:
                 print('Early stopping!')
                 break
             
-    def get_loss (self, step_generate):
+    def get_loss (self, step_generate, target, prompt_length):
         generated_dist = Categorical(step_generate)
-        target = generated_dist.sample().cpu().detach().numpy()
+        acts = generated_dist.sample().cpu().detach().numpy()#(torch.max(step_generate, 2)[1]).cpu().detach().numpy() 
+        #print(acts)
+        #print(target)
+        if prompt_length % 2 == 1:
+            wrong_idx = np.where(acts >= self.model.config.inst_obs_size)[0]
+            
+        else :
+            wrong_idx = np.where(acts < self.model.config.inst_obs_size)[0]
+        #print(wrong_idx)
+        #step_generate = step_generate[wrong_idx]
+        #target = target[wrong_idx]
+        #target = generated_dist.sample().cpu().detach().numpy()
         #target = torch.max(step_generate, 2)[1].cpu().detach().numpy()
-        #print(target.shape)
-        for i, acts in enumerate(target.T):
+        #for i, acts in enumerate(target.T):
             #print(acts)
-
-            if i % 2 == 0:
-                wrong_idx = np.where(acts >= self.model.config.inst_obs_size)[0]
-                acts[wrong_idx]=np.random.randint(0, self.model.config.inst_obs_size,
-                                                  len(acts[wrong_idx]))
-            elif i % 2 == 1:
-                wrong_idx = np.where(acts < self.model.config.inst_obs_size)[0]
-                acts[wrong_idx]=np.random.randint(self.model.config.inst_obs_size, 
-                                                  self.model.config.max_length-3,
-                                                  len(acts[wrong_idx]))
-            #print(acts.shape)
-            #print(len(wrong_idx))
+        #print(step_generate.size())
+        #print(target)
+        '''if i % 2 == 0:
+            wrong_idx = np.where(acts >= self.model.config.inst_obs_size)[0]
+            acts[wrong_idx]=np.random.randint(0, self.model.config.inst_obs_size,
+                                              len(acts[wrong_idx]))
+        elif i % 2 == 1:
+            wrong_idx = np.where(acts < self.model.config.inst_obs_size)[0]
+            acts[wrong_idx]=np.random.randint(self.model.config.inst_obs_size, 
+                                              self.model.config.max_length-3,
+                                              len(acts[wrong_idx]))
+            #print(acts.shape)'''
+        print(len(wrong_idx))
         
-        loss = self.loss_function(step_generate.transpose(1, 2), 
-                                  torch.tensor(target, device=self.device))
+        loss = torch.nan_to_num(self.loss_function(step_generate.transpose(1, 2), 
+                                torch.tensor(target.unsqueeze(1), device=self.device)))
+        '''if len(wrong_idx) > 0:
+            print (prompt_length)
+            print(loss)
+            print(acts)'''
+        ##print(loss)
+        
         return loss        
     
     def get_data (
@@ -146,6 +180,6 @@ class TransformerTrainer:
     
     def load_model (self):
         file_path = self.savePath + "/" + self.model.name + ".ckpt"
-        checkpoint = torch.load(file_path)
+        checkpoint = torch.load(file_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
