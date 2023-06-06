@@ -25,7 +25,9 @@ class TransformerKnapsack (nn.Module):
         self.config = config
         self.device = device
         
-        self.embed = nn.Linear(self.config.input_dim, self.config.output_dim)
+        self.en_embed = nn.Linear(self.config.input_dim, self.config.output_dim)
+        self.de_embed = nn.Linear(self.config.input_dim, self.config.output_dim)
+
         self.position_encode = PositionalEncoding(self.config.output_dim, 
                                                   self.config.max_length,
                                                   self.device)
@@ -69,20 +71,21 @@ class TransformerKnapsack (nn.Module):
                                dim=2)] = 0
         encoder_mask = torch.cat([encoder_mask]*self.config.nhead , 0)
 
-        decoder_ACT = [0]*self.config.output_dim
+        decoder_ACT = [0]*self.config.input_dim
         if promp_tensor == None:
-            start_tokens = [decoder_ACT]
-            promp_tensor = torch.tensor(
-                self.pad_left(
-                    sequence=start_tokens,
-                    final_length=2 * generat_link_number,#
-                    padding_token=decoder_ACT
-                    ),
-                dtype=torch.long
-            )
-            promp_tensor = promp_tensor.unsqueeze(dim=0)
-            promp_tensor = torch.cat([promp_tensor]*external_obs.size(0), 0)
-        
+            start_tokens = [[decoder_ACT]]*external_obs.size(0)
+        else: start_tokens = promp_tensor.tolist();# print('tt', len(start_tokens[0]))
+        promp_tensor = torch.tensor(
+            self.pad_left(
+                sequence=start_tokens,
+                final_length=2 * generat_link_number,#
+                padding_token=decoder_ACT
+                ),
+            dtype=torch.long
+        )
+        #promp_tensor = promp_tensor.unsqueeze(dim=0)
+        #promp_tensor = torch.cat([promp_tensor]*external_obs.size(0), 0)
+
         promp_tensor = promp_tensor.to(self.device)
         internalObservs = []
         generated = []#; generatedKnapsack = []
@@ -112,7 +115,7 @@ class TransformerKnapsack (nn.Module):
                                              memory_mask)
             #print('transPPPPPP ____max', torch.min(next_promp))
             #print('transPPPPPP ____any', torch.isnan(next_promp).any())
-            promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(1)], dim=1)#torch.mean(next_, 1)
+            #promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(1)], dim=1)#torch.mean(next_, 1)
             #generatedKnapsack.append(next_.unsqueeze(1))
             generated.append(next_.unsqueeze(1))
         return torch.cat(generated,1), promp_tensor #, torch.cat(internalObservs, 0)
@@ -132,13 +135,15 @@ class TransformerKnapsack (nn.Module):
         decoder_mask = decoder_mask.to(torch.bool)
         memory_mask = memory_mask.to(torch.bool)
         
-        self.embed=self.embed.to(self.device)
-        obs_embeding = self.embed(external_obs)
-        positional = self.position_encode(obs_embeding)  
+        self.en_embed=self.en_embed.to(self.device)
+        self.de_embed=self.de_embed.to(self.device)
+
+        ext_embedding = self.en_embed(external_obs)
+        int_embedding = self.de_embed(internal_obs)
         self.encoder = self.encoder.to(self.device)
         self.decoder = self.decoder.to(self.device)
-        transfer_out = self.decoder(self.position_encode (internal_obs), 
-                                    self.encoder(positional, encoder_mask), 
+        transfer_out = self.decoder(self.position_encode (int_embedding), 
+                                    self.encoder(self.position_encode(ext_embedding), encoder_mask), 
                                     decoder_mask, memory_mask)
         self.outer = self.outer.to(self.device)
         '''if torch.isnan(transfer_out[:,0]).any() == True:
@@ -152,6 +157,7 @@ class TransformerKnapsack (nn.Module):
             self.softmax(self.outer(torch.nan_to_num(transfer_out[:,0])))
     
     def pad_left(self, sequence, final_length, padding_token):
-        return [padding_token] * (final_length - len(sequence)) + sequence
+        pads = [[padding_token] * (final_length - len(sequence[:][0]))] * len(sequence)
+        return [sequence[i]+pads[i] for i in range (len(pads))]#TODO change to pad_left
     
     
