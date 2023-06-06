@@ -53,7 +53,9 @@ class TransformerKnapsack (nn.Module):
             decoder_layers, self.config.num_decoder_layers
         )
         
-        self.outer = nn.Linear(self.config.output_dim, self.config.max_length-3)
+        self.instance_outer = nn.Linear(self.config.output_dim//2, self.config.inst_obs_size)
+        self.knapsack_outer = nn.Linear(self.config.output_dim//2, self.config.knapsack_obs_size-3)
+
         self.softmax = nn.Softmax()
     
     def generate_step (
@@ -65,38 +67,39 @@ class TransformerKnapsack (nn.Module):
         
     ):
         encoder_ACT = [0]*self.config.input_dim
-        encoder_mask = torch.ones_like(external_obs[:,:,0], device=self.device)
+        encoder_mask = torch.zeros_like(external_obs[:,:,0], device=self.device)
         encoder_mask[torch.all(external_obs == torch.tensor(encoder_ACT, 
                                                             device=self.device), 
-                               dim=2)] = 0
+                               dim=2)] = 1
         encoder_mask = torch.cat([encoder_mask]*self.config.nhead , 0)
 
-        decoder_ACT = [0]*self.config.input_dim
+        decoder_ACT = [0]*self.config.output_dim
         if promp_tensor == None:
             start_tokens = [[decoder_ACT]]*external_obs.size(0)
-        else: start_tokens = promp_tensor.tolist();# print('tt', len(start_tokens[0]))
+        else: start_tokens = promp_tensor.tolist(); #print('tt', start_tokens)
         promp_tensor = torch.tensor(
             self.pad_left(
                 sequence=start_tokens,
-                final_length=2 * generat_link_number,#
+                final_length=generat_link_number,#2 * 
                 padding_token=decoder_ACT
                 ),
-            dtype=torch.long
+            dtype=torch.float
         )
+
         #promp_tensor = promp_tensor.unsqueeze(dim=0)
         #promp_tensor = torch.cat([promp_tensor]*external_obs.size(0), 0)
 
         promp_tensor = promp_tensor.to(self.device)
         internalObservs = []
-        generated = []#; generatedKnapsack = []
+        generatedInstance = []; generatedKnapsack = []
         for i in range(max_tokens_to_generate):
-            internal_obs = promp_tensor[:,-(2*generat_link_number):,:]#
+            internal_obs = promp_tensor[:,-(generat_link_number):,:]#2 * 
             internalObservs.append(internal_obs)
             #print('transformer ____any', torch.isnan(torch.cat(internalObservs, 0)).any())
-            decoder_mask = torch.ones_like(internal_obs[:,:,0])
+            decoder_mask = torch.zeros_like(internal_obs[:,:,0])
             decoder_mask[torch.all(internal_obs == torch.tensor(decoder_ACT, 
                                                                 device=self.device), 
-                                   dim=2)] = 0
+                                   dim=2)] = 1
             decoder_mask = torch.cat([decoder_mask]*self.config.nhead , 0)
             memory_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2).long(), 
                                        encoder_mask.to(torch.device('cpu')).unsqueeze(1).long())
@@ -106,19 +109,22 @@ class TransformerKnapsack (nn.Module):
                                         decoder_mask.to(torch.device('cpu')).unsqueeze(1))
             
             external_obs = external_obs.to(self.device)
-            encoder_mask_sqr = encoder_mask_sqr.to(self.device)
             internal_obs = internal_obs.to(self.device)
+            encoder_mask_sqr = encoder_mask_sqr.to(self.device)
             decoder_mask = decoder_mask.to(self.device)
             memory_mask = memory_mask.to(self.device)
-            next_promp, next_ = self.forward(external_obs, encoder_mask_sqr, 
+            next_promp, next_instance, next_ks = self.forward(external_obs, encoder_mask_sqr, 
                                              internal_obs, decoder_mask, 
                                              memory_mask)
             #print('transPPPPPP ____max', torch.min(next_promp))
             #print('transPPPPPP ____any', torch.isnan(next_promp).any())
-            #promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(1)], dim=1)#torch.mean(next_, 1)
+            #print(promp_tensor.size())
+            #print(next_promp.size())
+            promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(0)], dim=1)#torch.mean(next_, 1)
             #generatedKnapsack.append(next_.unsqueeze(1))
-            generated.append(next_.unsqueeze(1))
-        return torch.cat(generated,1), promp_tensor #, torch.cat(internalObservs, 0)
+            generatedInstance.append(next_instance.unsqueeze(1))
+            generatedKnapsack.append(next_ks.unsqueeze(1))
+        return torch.cat(generatedInstance,1), torch.cat(generatedKnapsack,1), promp_tensor #, torch.cat(internalObservs, 0)
         
     
     def forward (
@@ -129,23 +135,25 @@ class TransformerKnapsack (nn.Module):
         decoder_mask:torch.tensor,
         memory_mask:torch.tensor,
     ):
+        #print(internal_obs.size())
         external_obs = external_obs.to(torch.float32)
         internal_obs = internal_obs.to(torch.float32)
         encoder_mask = encoder_mask.to(torch.bool)
         decoder_mask = decoder_mask.to(torch.bool)
         memory_mask = memory_mask.to(torch.bool)
-        
         self.en_embed=self.en_embed.to(self.device)
         self.de_embed=self.de_embed.to(self.device)
 
         ext_embedding = self.en_embed(external_obs)
-        int_embedding = self.de_embed(internal_obs)
+        #int_embedding = self.de_embed(internal_obs)
         self.encoder = self.encoder.to(self.device)
         self.decoder = self.decoder.to(self.device)
-        transfer_out = self.decoder(self.position_encode (int_embedding), 
+        transfer_out = self.decoder(self.position_encode (internal_obs), 
                                     self.encoder(self.position_encode(ext_embedding), encoder_mask), 
                                     decoder_mask, memory_mask)
-        self.outer = self.outer.to(self.device)
+        self.instance_outer = self.instance_outer.to(self.device)
+        self.knapsack_outer = self.knapsack_outer.to(self.device)
+
         '''if torch.isnan(transfer_out[:,0]).any() == True:
             print('trueeeeeeeeeeeeeeeeeeeeee')
             print('max', torch.max(internal_obs))
@@ -154,10 +162,11 @@ class TransformerKnapsack (nn.Module):
             print('all', torch.isnan(transfer_out[:,0]).all())'''
 
         return torch.nan_to_num(transfer_out[:,0]), \
-            self.softmax(self.outer(torch.nan_to_num(transfer_out[:,0])))
+            self.softmax(self.instance_outer(torch.nan_to_num(transfer_out[:,0,:self.config.output_dim//2]))), \
+            self.softmax(self.knapsack_outer(torch.nan_to_num(transfer_out[:,0,self.config.output_dim//2:])))
+    
     
     def pad_left(self, sequence, final_length, padding_token):
         pads = [[padding_token] * (final_length - len(sequence[:][0]))] * len(sequence)
-        return [sequence[i]+pads[i] for i in range (len(pads))]#TODO change to pad_left
-    
+        return [pads[i]+sequence[i] for i in range (len(pads))]
     
