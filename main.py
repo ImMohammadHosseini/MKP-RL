@@ -34,7 +34,7 @@ parser.add_option("-N", "--instances", action="store", dest="instances",
                   default=100)
 opts, args = parser.parse_args()
 
-DEVICE = ("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 INFOS = {'CAP_LOW':40,#150, 
          'CAP_HIGH':400, 
          'WEIGHT_LOW':10, 
@@ -84,9 +84,10 @@ def rlInitializer (statePrepare):
                                             model_config=modelConfig, device=DEVICE)
     if path.exists(transformerTrainer.savePath):
         transformerTrainer.load_model()
-    else: transformerTrainer.train(opts.var, opts.kps, opts.instances, INFOS)
+    else:
+        pass#transformerTrainer.train(opts.var, opts.kps, opts.instances, INFOS)
     criticModel = CriticNetwork(modelConfig.max_length*modelConfig.input_dim,
-                                (2*ppoConfig.generat_link_number)*modelConfig.output_dim)
+                                (ppoConfig.generat_link_number)*modelConfig.output_dim)#2*
     externalCriticModel = ExternalCriticNetwork(modelConfig.max_length*modelConfig.input_dim)
     env = KnapsackAssignmentEnv(modelConfig.input_dim, INFOS, statePrepare, 
                                 NO_CHANGE_LONG, DEVICE)
@@ -123,7 +124,7 @@ def rl_train (env, ppoTrainer):
     n_steps = 0
     for i in tqdm(range(N_TRAIN_STEPS)):#TODO CHECK THE EPOCH
         externalObservation, _ = env.reset()
-        externalObservations = torch.zeros([0,112,6], device=DEVICE)
+        externalObservations = torch.zeros([0,113,6], device=DEVICE)
         done = False
         externalReward = 0
         accepted_act = torch.zeros((0,2), device=DEVICE)
@@ -140,9 +141,9 @@ def rl_train (env, ppoTrainer):
             accepted_act = torch.cat([accepted_act, torch.tensor(step_acts, device=DEVICE)], 0)
             accepted_prob = torch.cat([accepted_prob, torch.tensor(step_prob, device=DEVICE)])
             n_steps += 1
-        #ppoTrainer.external_train(externalObservations, accepted_act, accepted_prob,
-        #                          torch.tensor(externalRewards, device=DEVICE), 
-        #                          statePrepare)
+        ppoTrainer.external_train(externalObservations, accepted_act, accepted_prob,
+                                  torch.tensor(externalRewards, device=DEVICE), 
+                                  statePrepare)
         #score += externalReward
         score, remain_cap_ratio = env.final_score()
         score_history.append(np.sum(score))
