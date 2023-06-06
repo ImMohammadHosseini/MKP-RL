@@ -4,7 +4,7 @@
 
 import torch
 import numpy as np
-from torch.optim import Adam, RMSprop
+from torch.optim import Adam, RMSprop, SGD
 from torch.utils.data import DataLoader, TensorDataset
 from typing import Optional
 from torch.distributions.categorical import Categorical
@@ -34,7 +34,7 @@ class TransformerTrainer:
         else: self.model = model 
         
         if optimizer is None:
-            self.optimizer = Adam(self.model.parameters(), 
+            self.optimizer = RMSprop(self.model.parameters(), 
                 lr=self.model.config.first_train_lr
             )
         else: self.optimizer = optimizer
@@ -64,24 +64,29 @@ class TransformerTrainer:
                 target[:, ::2]=rand_indx_instance
                 target[:, 1::2]=rand_indx_knapsack
                 start_prompt_length = np.random.randint(0, 101)
+                p_loss = []; loss = torch.tensor(0, device=self.device, dtype=torch.float)
                 for prompt_length in range(start_prompt_length, 99): 
+                    self.model.train()
+                    self.optimizer.zero_grad()
                     #print(prompt_length)
                     prompt = torch.cat([obs[0][i][target[i][:prompt_length]].unsqueeze(0) for i in range(
                         self.model.config.first_train_batch_size)], 0)
 
-                    self.model.train()
-                    self.optimizer.zero_grad()
+                    
                     stepGenerate, _ = self.model.generate_step(obs[0], 1, 50, prompt)
                     if prompt_length % 2 == 1:
                         loss_target = target[:,prompt_length+1] - 1
+                        #loss = self.get_loss(stepGenerate, torch.tensor(
+                        #    loss_target, dtype=torch.long, device=self.device), prompt_length)
                     else:
                         loss_target = target[:,prompt_length+1] - 2
                     loss = self.get_loss(stepGenerate, torch.tensor(
                         loss_target, dtype=torch.long, device=self.device), prompt_length)
+                    #loss.requires_grad = True
                     loss.backward()
                     self.optimizer.step()
-                    #float(loss['loss'])
                     losses.append(float(loss))
+                
             epoch_loss = sum(losses) / len(losses)
             loss_list.append(epoch_loss)
             print(f'Epoch: {epoch:03d}, Loss: {epoch_loss:.4f}')
@@ -99,8 +104,8 @@ class TransformerTrainer:
     def get_loss (self, step_generate, target, prompt_length):
         generated_dist = Categorical(step_generate)
         acts = generated_dist.sample().cpu().detach().numpy()#(torch.max(step_generate, 2)[1]).cpu().detach().numpy() 
-        #print(acts)
-        #print(target)
+        print(acts)
+        print(target)
         if prompt_length % 2 == 1:
             wrong_idx = np.where(acts >= self.model.config.inst_obs_size)[0]
             
@@ -125,10 +130,14 @@ class TransformerTrainer:
                                               self.model.config.max_length-3,
                                               len(acts[wrong_idx]))
             #print(acts.shape)'''
-        print(len(wrong_idx))
+        #print(len(wrong_idx))
         
-        loss = torch.nan_to_num(self.loss_function(step_generate.transpose(1, 2), 
+        loss1 = torch.nan_to_num(self.loss_function(step_generate.transpose(1, 2), 
                                 torch.tensor(target.unsqueeze(1), device=self.device)))
+        loss2 = torch.tensor(float(len(wrong_idx)), device=self.device)
+        loss = loss1
+        print(loss)
+
         '''if len(wrong_idx) > 0:
             print (prompt_length)
             print(loss)
@@ -157,7 +166,7 @@ class TransformerTrainer:
                 c, w, v = multiObjectiveDimentional(self.model.config.problem_dim, 
                                                     kps_n, instances_n, info)
             statePrepare.set_new_problem(c, w, v)
-            statePrepare.normalizeData(info['CAP_HIGH'], info['VALUE_HIGH'])
+            statePrepare.normalizeData(400, info['VALUE_HIGH'])#info['CAP_HIGH']
             statePrepare.reset()
             caps, weightValues = statePrepare.getObservation()
             ACT = np.zeros((1,self.model.config.input_dim))
