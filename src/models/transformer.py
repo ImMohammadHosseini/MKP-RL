@@ -119,8 +119,8 @@ class TransformerKnapsack (nn.Module):
             #print('transPPPPPP ____max', torch.min(next_promp))
             #print('transPPPPPP ____any', torch.isnan(next_promp).any())
             #print(promp_tensor.size())
-            #print(next_promp.size())
-            promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(0)], dim=1)#torch.mean(next_, 1)
+            #print(next_promp.unsqueeze(1).size())
+            promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(1)], dim=1)#torch.mean(next_, 1)
             #generatedKnapsack.append(next_.unsqueeze(1))
             generatedInstance.append(next_instance.unsqueeze(1))
             generatedKnapsack.append(next_ks.unsqueeze(1))
@@ -160,7 +160,7 @@ class TransformerKnapsack (nn.Module):
             print('min', torch.min(internal_obs))
             print('any', torch.isnan(transfer_out[:,0]).any())
             print('all', torch.isnan(transfer_out[:,0]).all())'''
-
+        #print(transfer_out[:,0].size())
         return torch.nan_to_num(transfer_out[:,0]), \
             self.softmax(self.instance_outer(torch.nan_to_num(transfer_out[:,0,:self.config.output_dim//2]))), \
             self.softmax(self.knapsack_outer(torch.nan_to_num(transfer_out[:,0,self.config.output_dim//2:])))
