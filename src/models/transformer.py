@@ -11,7 +11,7 @@ from torch.nn import (
     TransformerDecoder,
 )
 from .positional_encoding import PositionalEncoding
-from typing import List, Optional
+from typing import Optional
 
 
 class TransformerKnapsack (nn.Module):
@@ -95,7 +95,7 @@ class TransformerKnapsack (nn.Module):
         for i in range(max_tokens_to_generate):
             internal_obs = promp_tensor[:,-(generat_link_number):,:]#2 * 
             internalObservs.append(internal_obs)
-            #print('transformer ____any', torch.isnan(torch.cat(internalObservs, 0)).any())
+
             decoder_mask = torch.zeros_like(internal_obs[:,:,0])
             decoder_mask[torch.all(internal_obs == torch.tensor(decoder_ACT, 
                                                                 device=self.device), 
@@ -116,12 +116,8 @@ class TransformerKnapsack (nn.Module):
             next_promp, next_instance, next_ks = self.forward(external_obs, encoder_mask_sqr, 
                                              internal_obs, decoder_mask, 
                                              memory_mask)
-            #print('transPPPPPP ____max', torch.min(next_promp))
-            #print('transPPPPPP ____any', torch.isnan(next_promp).any())
-            #print(promp_tensor.size())
-            #print(next_promp.size())
-            promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(0)], dim=1)#torch.mean(next_, 1)
-            #generatedKnapsack.append(next_.unsqueeze(1))
+            
+            promp_tensor = torch.cat([promp_tensor, next_promp.unsqueeze(1)], dim=1)#torch.mean(next_, 1)
             generatedInstance.append(next_instance.unsqueeze(1))
             generatedKnapsack.append(next_ks.unsqueeze(1))
         return torch.cat(generatedInstance,1), torch.cat(generatedKnapsack,1), promp_tensor #, torch.cat(internalObservs, 0)
@@ -135,7 +131,6 @@ class TransformerKnapsack (nn.Module):
         decoder_mask:torch.tensor,
         memory_mask:torch.tensor,
     ):
-        #print(internal_obs.size())
         external_obs = external_obs.to(torch.float32)
         internal_obs = internal_obs.to(torch.float32)
         encoder_mask = encoder_mask.to(torch.bool)
@@ -153,13 +148,6 @@ class TransformerKnapsack (nn.Module):
                                     decoder_mask, memory_mask)
         self.instance_outer = self.instance_outer.to(self.device)
         self.knapsack_outer = self.knapsack_outer.to(self.device)
-
-        '''if torch.isnan(transfer_out[:,0]).any() == True:
-            print('trueeeeeeeeeeeeeeeeeeeeee')
-            print('max', torch.max(internal_obs))
-            print('min', torch.min(internal_obs))
-            print('any', torch.isnan(transfer_out[:,0]).any())
-            print('all', torch.isnan(transfer_out[:,0]).all())'''
 
         return torch.nan_to_num(transfer_out[:,0]), \
             self.softmax(self.instance_outer(torch.nan_to_num(transfer_out[:,0,:self.config.output_dim//2]))), \

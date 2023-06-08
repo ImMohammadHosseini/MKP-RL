@@ -11,7 +11,7 @@ from RL.src.core import LengthSampler
 from data.dataProducer import multipleKnapSackData, multiObjectiveDimentional
 from configs.ppo_configs import PPOConfig
 from configs.transformers_model_configs import TransformerKnapsackConfig
-from src.transformer_trainer import TransformerTrainer
+from src.models.transformer import TransformerKnapsack
 from src.models.critic_model import CriticNetwork, ExternalCriticNetwork
 from src.data_structure.state_prepare import ExternalStatePrepare
 from RL.src.env import KnapsackAssignmentEnv
@@ -29,9 +29,11 @@ parser.add_option("-V", "--variation", action="store", dest="var",
                   help="variation is multipleKnapsack, multi_dimentional, \
                       multiObjectiveDimentional")
 parser.add_option("-D", "--dim", action="store", dest="dim", default=5)
-parser.add_option("-M", "--knapsaks", action="store", dest="kps", default=10)
+parser.add_option("-K", "--knapsaks", action="store", dest="kps", default=10)
 parser.add_option("-N", "--instances", action="store", dest="instances", 
                   default=100)
+parser.add_option("-M", "--mode", action="store", dest="mode", 
+                  default='train')
 opts, args = parser.parse_args()
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -80,18 +82,14 @@ def rlInitializer (statePrepare):
     ppoConfig = PPOConfig()
     modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
                                             opts.dim)
-    transformerTrainer = TransformerTrainer(save_path=SAVE_PATH, 
-                                            model_config=modelConfig, device=DEVICE)
-    if path.exists(transformerTrainer.savePath):
-        transformerTrainer.load_model()
-    else:
-        pass#transformerTrainer.train(opts.var, opts.kps, opts.instances, INFOS)
+    actorModel = TransformerKnapsack(modelConfig, DEVICE)
+    
     criticModel = CriticNetwork(modelConfig.max_length*modelConfig.input_dim,
                                 (ppoConfig.generat_link_number)*modelConfig.output_dim)#2*
     externalCriticModel = ExternalCriticNetwork(modelConfig.max_length*modelConfig.input_dim)
     env = KnapsackAssignmentEnv(modelConfig.input_dim, INFOS, statePrepare, 
                                 NO_CHANGE_LONG, DEVICE)
-    ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, ppoConfig, transformerTrainer.model, 
+    ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, ppoConfig, actorModel, 
                             criticModel, externalCriticModel, DEVICE)
     
     return env, ppoTrainer
@@ -122,7 +120,7 @@ def rl_train (env, ppoTrainer):
     best_score = 15.9#INFOS['VALUE_LOW']
     score_history = []
     n_steps = 0
-    for i in tqdm(range(N_TRAIN_STEPS)):#TODO CHECK THE EPOCH
+    for i in tqdm(range(N_TRAIN_STEPS)):
         externalObservation, _ = env.reset()
         externalObservations = torch.zeros([0,113,6], device=DEVICE)
         done = False
