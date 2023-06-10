@@ -77,15 +77,14 @@ class TransformerKnapsack (nn.Module):
 
         decoder_ACT = [0]*self.config.output_dim
         if promp_tensor == None:
-            #print('yessssssssssssssssssssssssssssssssssssss')
             start_tokens = [[decoder_ACT]]*external_obs.size(0)
             nopeak_mask = np.triu(np.ones((self.config.nhead, generat_link_number, 
                                            generat_link_number)), 
                                   k=1).astype('uint8')
         else: 
-            start_tokens = promp_tensor.tolist(); #print('tt', start_tokens)
-            nopeak_mask = np.ones((promp_tensor.size(0)*self.config.nhead, 
-                                   generat_link_number, generat_link_number))
+            start_tokens = promp_tensor.tolist()
+            nopeak_mask = np.ones((self.config.nhead, generat_link_number, 
+                                   generat_link_number))
         promp_tensor = torch.tensor(
             self.pad_left(
                 sequence=start_tokens,
@@ -94,7 +93,7 @@ class TransformerKnapsack (nn.Module):
                 ),
             dtype=torch.float
         )
-        
+
         nopeak_mask = torch.from_numpy(nopeak_mask) == 0
         #promp_tensor = promp_tensor.unsqueeze(dim=0)
         #promp_tensor = torch.cat([promp_tensor]*external_obs.size(0), 0)
@@ -118,9 +117,12 @@ class TransformerKnapsack (nn.Module):
                                             encoder_mask.to(torch.device('cpu')).unsqueeze(1))
             decoder_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2), 
                                         decoder_mask.to(torch.device('cpu')).unsqueeze(1))
+            #print('decoder_mask', decoder_mask.size())
+            nopeak_mask = torch.cat([nopeak_mask]*internal_obs.size(0), 0)
+            #print('nopeak_mask ', nopeak_mask.size())
             decoder_mask = decoder_mask.to(torch.bool)
-
             decoder_mask = decoder_mask & nopeak_mask
+            
             external_obs = external_obs.to(self.device)
             internal_obs = internal_obs.to(self.device)
             encoder_mask_sqr = encoder_mask_sqr.to(self.device)
