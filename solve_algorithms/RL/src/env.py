@@ -52,17 +52,23 @@ class KnapsackAssignmentEnv (gym.Env):
         
         super().__init__()
         self.device = device
-        self.statePrepare = state_dataClass
+        self.set_statePrepare(state_dataClass)
         self.statePrepare.normalizeData(info['CAP_HIGH'], info['VALUE_HIGH'])
         self.no_change_long = no_change_long
         
     
-    def _get_obs(self) -> dict:
+    def set_statePrepare (
+        self,
+        state_dataClass: ExternalStatePrepare,
+    ):
+        self.statePrepare = state_dataClass
+
+    def _get_obs (self) -> dict:
         stateCaps, stateWeightValues = self.statePrepare.getObservation()
         
         return {"knapsack": stateCaps, "instance_value": stateWeightValues}
         
-    def _get_info(self):
+    def _get_info (self):
         return ""
         
         
@@ -71,11 +77,14 @@ class KnapsackAssignmentEnv (gym.Env):
         #super().reset(seed=seed)
         self.statePrepare.reset()
         externalObservation = self._get_obs()
-        ACT = np.zeros((1,self.dim))
-        externalObservation = np.append(ACT, np.append(np.append(externalObservation[
-            "instance_value"],ACT, axis=0), np.append(externalObservation["knapsack"], 
-                                         ACT, axis=0),axis=0),
-                                         axis=0)
+        SOD = np.array([[1.]*self.dim])
+        EOD = np.array([[2.]*self.dim])
+        PAD = np.array([[0.]*self.dim])
+        #ACT = np.zeros((1,self.dim))
+        externalObservation = np.append(np.append(externalObservation[
+            "instance_value"],EOD, axis=0), np.append(externalObservation["knapsack"], 
+                                         EOD, axis=0),axis=0)#,
+                                        # axis=0)
         info = self._get_info()
 
         externalObservation = torch.tensor(externalObservation, 
@@ -94,11 +103,14 @@ class KnapsackAssignmentEnv (gym.Env):
             return None, externalReward, terminated, info
         
         externalObservation = self._get_obs()
-        ACT = np.zeros((1,self.dim))
-        externalObservation = np.append(ACT, np.append(np.append(externalObservation[
-            "instance_value"],ACT, axis=0), np.append(externalObservation["knapsack"], 
-                                         ACT, axis=0),axis=0),
-                                         axis=0)
+        #ACT = np.zeros((1,self.dim))
+        SOD = np.array([[1.]*self.dim])
+        EOD = np.array([[2.]*self.dim])
+        PAD = np.array([[0.]*self.dim])
+        externalObservation = np.append(np.append(externalObservation[
+            "instance_value"],EOD, axis=0), np.append(externalObservation["knapsack"], 
+                                         EOD, axis=0),axis=0)#,
+                                         #axis=0)
         
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 

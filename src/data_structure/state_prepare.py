@@ -61,13 +61,17 @@ class ExternalStatePrepare:
         shuffle = np.random.permutation(len(self.weights))
         self.remainInstanceWeights = self.weights[shuffle]
         self.remainInstanceValues = self.values[shuffle]
+        shuffle = np.random.permutation(len(self.knapsacks))
         for k in self.knapsacks: k.reset()
-        
+        self.knapsacks = list(np.array(self.knapsacks)[shuffle])
+
     def _setKnapsack (self, allCapacities):
         self.knapsacks = [Knapsack(i, c) for i, c in enumerate(allCapacities)]
     
     def getObservation (self) -> np.ndarray:
-        #print(len(self.remainInstanceWeights)) #TODO pad_len 
+        SOD = np.array([[1.]*(self.weights.shape[1]+1)])
+        #EOD = np.array([[2.]*self.dim])
+        #PAD = np.array([[0.]*self.dim])
         self.stateCaps = np.array([k.getRemainCap() \
                                    for k in self.knapsacks])
         self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps),1)), 
@@ -75,15 +79,15 @@ class ExternalStatePrepare:
         self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
         if self.pad_len <= 0:
             self.pad_len = 0
-            self.stateWeightValues = np.append(self.remainInstanceWeights[
+            self.stateWeightValues = np.append(SOD, np.append(self.remainInstanceWeights[
                 :self.instanceObsSize], self.remainInstanceValues[
-                    :self.instanceObsSize], axis=1)
+                    :self.instanceObsSize], axis=1), axis=0)
             self.remainInstanceWeights = self.remainInstanceWeights[self.instanceObsSize:]
             self.remainInstanceValues = self.remainInstanceValues[self.instanceObsSize:]
         else: 
             padding = np.zeros((1, len(self.remainInstanceWeights[0])+1))
-            self.stateWeightValues = self._pad_left(np.append(
-                self.remainInstanceWeights, self.remainInstanceValues, axis=1),
+            self.stateWeightValues = self._pad_left(np.append(SOD, np.append(
+                self.remainInstanceWeights, self.remainInstanceValues, axis=1), axis=0),
                 padding)
             '''np.append(padding, 
                                                np.append(self.remainInstanceWeights, 
@@ -105,6 +109,12 @@ class ExternalStatePrepare:
     
     def getKnapsack (self, index) -> Knapsack:
         return self.knapsacks[index]
+    
+    def getObservedKS (self, index):
+        return self.stateCaps[index]
+    
+    def getObservedInst (self, index):
+        return self.stateWeightValues[index]
     
     def getObservedInstWeight (self, index):
         return self.stateWeightValues[index][:-1]
