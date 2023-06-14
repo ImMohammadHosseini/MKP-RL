@@ -98,15 +98,15 @@ class KnapsackAssignmentEnv (gym.Env):
                                            device=self.device)#.unsqueeze(dim=0)
         return externalObservation, info
     
-    def step (self, step_actions):
+    def step (self, step_actions, sp):
         externalRewards = []
         terminated = False
         for index in range(self.main_batch_size):
-            invalid_action_end_index = max(np.where(step_actions[0] == -1)[0])
+            invalid_action_end_index = max(np.where(step_actions[index] == -1)[0])
             if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
-            externalRewards.append(self.statePrepares[index].changeNextState(step_actions))               
+            externalRewards.append(self.statePrepares[index].changeNextState(
+                step_actions[index][invalid_action_end_index+1:]))               
             terminated = terminated or self.statePrepares[index].is_terminated()
-        print(self.dd)
         
         terminated = terminated or self.no_change > self.no_change_long
         
@@ -133,12 +133,16 @@ class KnapsackAssignmentEnv (gym.Env):
         pass
     
     def final_score (self):
-        score = 0; remain_cap_ratio = []
-        for ks in self.statePrepare.knapsacks:
-            score += ks.score_ratio()
-            remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
-        remain_cap_ratio = np.mean(remain_cap_ratio)
-        return score, remain_cap_ratio
+        scores = []; remain_cap_ratios = []
+        for statePrepare in self.statePrepares:
+            score = 0
+            remain_cap_ratio = []
+            for ks in statePrepare.knapsacks:
+                score += ks.score_ratio()
+                remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
+            scores.append(score)
+            remain_cap_ratios.append(np.mean(remain_cap_ratio))
+        return scores, remain_cap_ratios
     
     
     
