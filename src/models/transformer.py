@@ -107,7 +107,7 @@ class TransformerKnapsack (nn.Module):
 
         nopeak_mask = torch.from_numpy(nopeak_mask) == 1
         
-        internal_obs = promp_tensor[:,-(2*generat_link_number):,:]
+        internal_obs = promp_tensor#[:,-(2*generat_link_number):,:]
         decoder_padding_mask = torch.zeros_like(internal_obs[:,:,0])
         decoder_padding_mask[torch.all(internal_obs == torch.tensor(PAD, device=self.device), 
                                        dim=2)] = 1
