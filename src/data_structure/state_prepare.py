@@ -139,7 +139,10 @@ class ExternalStatePrepare:
                 print(cap)
                 np.set_printoptions(precision=10)
                 print(weight)
-            #assert all(cap >= weight)
+            assert all(cap >= weight)
+            if not inst_act >= self.pad_len:
+                print('pad_len', self.pad_len)
+                print('inst_act', inst_act)
             assert inst_act >= self.pad_len
             knapSack.addInstance(weight, value)
             external_reward.append(value / np.sum(weight))
