@@ -13,11 +13,11 @@ class KnapsackAssignmentEnv (gym.Env):
     def __init__ (
         self,
         dim: int,
-        info:dict,
-        no_change_long:int,
-        knapsackObsSize:int,
-        instanceObsSize:int,
-        batchSize:int,
+        info: dict,
+        no_change_long: int,
+        knapsackObsSize: int,
+        instanceObsSize: int,
+        main_batch_size: int,
         device = "cpu",
     ):
         self.dim = dim
@@ -26,21 +26,21 @@ class KnapsackAssignmentEnv (gym.Env):
             {
                 "knapsack": spaces.Box(low=np.array(
                     [[[info['CAP_LOW'], info['CAP_LOW'], info['CAP_LOW'], 
-                     info['CAP_LOW'], info['CAP_LOW'],0]]*knapsackObsSize]*batchSize), 
+                     info['CAP_LOW'], info['CAP_LOW'],0]]*knapsackObsSize]*main_batch_size), 
                                        high=np.array(
                     [[[info['CAP_HIGH'], info['CAP_HIGH'], info['CAP_HIGH'],
-                     info['CAP_HIGH'], info['CAP_HIGH'],0]]*knapsackObsSize]*batchSize), 
-                                       shape=(batchSize, knapsackObsSize,
+                     info['CAP_HIGH'], info['CAP_HIGH'],0]]*knapsackObsSize]*main_batch_size), 
+                                       shape=(main_batch_size, knapsackObsSize,
                                               self.dim), dtype=int),
                 "instance_value": spaces.Box(low=np.array(
                     [[[info['WEIGHT_LOW'], info['WEIGHT_LOW'], info['WEIGHT_LOW'], 
                      info['WEIGHT_LOW'], info['WEIGHT_LOW'], 
-                     info['VALUE_LOW']]]*instanceObsSize]*batchSize), 
+                     info['VALUE_LOW']]]*instanceObsSize]*main_batch_size), 
                                        high=np.array(
                     [[[info['WEIGHT_HIGH'], info['WEIGHT_HIGH'], info['WEIGHT_HIGH'],
                      info['WEIGHT_HIGH'], info['WEIGHT_HIGH'], 
-                     info['VALUE_HIGH']]]*instanceObsSize]*batchSize), 
-                                       shape=(batchSize, instanceObsSize,
+                     info['VALUE_HIGH']]]*instanceObsSize]*main_batch_size), 
+                                       shape=(main_batch_size, instanceObsSize,
                                               self.dim), dtype=int),
             }
         )
@@ -54,13 +54,12 @@ class KnapsackAssignmentEnv (gym.Env):
         
         super().__init__()
         self.device = device
-        self.batchSize = batchSize
+        self.main_batch_size = main_batch_size
         self.info = info
         self.knapsackObsSize = knapsackObsSize
         self.instanceObsSize = instanceObsSize
         self.no_change_long = no_change_long
         
-    
     def setStatePrepare (
         self,
         stateDataClasses: np.ndarray,
@@ -87,7 +86,7 @@ class KnapsackAssignmentEnv (gym.Env):
         self.no_change = 0#TODO
         for statePrepare in self.statePrepares: statePrepare.reset()
         externalObservation = self._get_obs()
-        EOD = np.array([[[2.]*self.dim]]*self.batchSize)
+        EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
         
         externalObservation = np.append(np.append(externalObservation[
             "instance_value"],EOD, axis=1), np.append(externalObservation["knapsack"], 
@@ -100,26 +99,34 @@ class KnapsackAssignmentEnv (gym.Env):
         return externalObservation, info
     
     def step (self, step_actions):
-        if len(step_actions) == 0: self.no_change += 1; #print(self.no_change)
-        externalReward = self.statePrepare.changeNextState(step_actions) 
-        terminated = (self.statePrepare.is_terminated() or self.no_change > self.no_change_long)
+        externalRewards = []
+        terminated = False
+        for index in range(self.main_batch_size):
+            invalid_action_end_index = max(np.where(step_actions[0] == -1)[0])
+            if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
+            externalRewards.append(self.statePrepares[index].changeNextState(step_actions))               
+            terminated = terminated or self.statePrepares[index].is_terminated()
+        print(self.dd)
+        
+        terminated = terminated or self.no_change > self.no_change_long
         
         info = self._get_info()
 
         if terminated:
-            return None, externalReward, terminated, info
+            return None, externalRewards, terminated, info
         
         externalObservation = self._get_obs()
-        EOD = np.array([[2.]*self.dim])
-
+        EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
+        
         externalObservation = np.append(np.append(externalObservation[
-            "instance_value"],EOD, axis=0), np.append(externalObservation["knapsack"], 
-                                         EOD, axis=0),axis=0)
+            "instance_value"],EOD, axis=1), np.append(externalObservation["knapsack"], 
+                                         EOD, axis=1),axis=1)
         
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
-                                           device=self.device).unsqueeze(dim=0) 
-        return externalObservation, externalReward, terminated, info
+                                           device=self.device)
+        
+        return externalObservation, externalRewards, terminated, info
     
     
     def response_decode (self, responce):
