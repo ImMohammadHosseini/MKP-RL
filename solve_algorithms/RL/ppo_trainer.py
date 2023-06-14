@@ -44,7 +44,6 @@ class PPOTrainer(BaseTrainer):
         if not isinstance(config, PPOConfig):
             raise ValueError(f"config must be a PPOConfig, got {type(config)}")
         
-        #set_seed(config.seed)
         
         self.device = device
         self.softmax = torch.nn.Softmax()
@@ -82,8 +81,8 @@ class PPOTrainer(BaseTrainer):
         if path.exists(self.savePath):
             self.load_models()
             
-        self.global_actor_loss = torch.tensor(0., device=self.device)
-        self.global_critic_loss = torch.tensor(0., device=self.device)
+        self.batch_actor_loss = torch.tensor(0., device=self.device)
+        self.batch_critic_loss = torch.tensor(0., device=self.device)
     
     def _choose_actions (
         self, 
@@ -180,12 +179,13 @@ class PPOTrainer(BaseTrainer):
                                                io.to(self.device)).squeeze()
                  
                     for _ in range(self.config.ppo_epochs):
-                        dones, batches = self._generate_batch(done=done)
+                        dones, batches = self.generate_batch(done=done)
                         self._train_minibatch(self.config.internal_batch, eo, 
                                               actions[index], probs[index], 
                                               values, internalRewards[index], 
                                               batches, io, dones)
 
+                self._update_models()
                 actions = torch.zeros((self.main_batch_size,0,2), dtype=torch.int, 
                                       device=self.device)
                 probs = torch.tensor([], dtype=torch.float64, device=self.device)
@@ -219,7 +219,7 @@ class PPOTrainer(BaseTrainer):
         
         return step_acts
         
-    def _generate_batch (
+    def generate_batch (
         self, 
         n_states: Optional[int] = None,
         batch_size: Optional[int] = None,
@@ -255,12 +255,7 @@ class PPOTrainer(BaseTrainer):
         dones: Optional[torch.tensor]=None,
         mode = "internal",
     ):
-        ##print(external_obs.size())
-        #print(actions.size())
-        #print(old_log_probs.size())
-        #print(vals.size())
-        #print(rewards.size())
-        #print(internal_obs.size())
+        
         advantage = torch.zeros(n_states, dtype=torch.float32, device=self.device)
         for t in range(n_states-1):
             discount = 1
@@ -272,7 +267,6 @@ class PPOTrainer(BaseTrainer):
             advantage[t] = a_t
 
         for batch in batches:
-
             eo = external_obs[batch]
             if mode == "internal":
                 io = internal_obs[batch]
@@ -280,12 +274,11 @@ class PPOTrainer(BaseTrainer):
             olp = old_log_probs[batch]
             acts = actions[batch]
             
-            generatedInstance, generatedKnapsack, _ = self.actor_model.generate_step(eo, 1, self.config.generat_link_number, 
-                                                             io)
+            generatedInstance, generatedKnapsack, _ = self.actor_model.generateOneStep(
+                eo, self.config.generat_link_number, io)
             
             new_inst_dist = Categorical(generatedInstance)
             new_ks_dist = Categorical(generatedKnapsack)
-            #new_dist = Categorical (stepGenerate)
             
             if mode == "internal":
                 critic_value = self.critic_model(eo.to(self.device), io.to(self.device))
@@ -307,31 +300,17 @@ class PPOTrainer(BaseTrainer):
             critic_loss = (returns-critic_value)**2
             critic_loss = critic_loss.mean()
             
-            self.global_actor_loss += actor_loss.data
-            self.global_critic_loss += critic_loss.data
-            '''#print('ad', actor_loss)
-            #print('ma', critic_loss)
-            actor_loss_leaf = Variable(actor_loss.data, requires_grad=True)
-            critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
-            total_loss = actor_loss + 0.5*critic_loss
-            #print(total_loss)
-            total_loss = Variable(total_loss.data, requires_grad=True)
+            self.batch_actor_loss += actor_loss.data
+            self.batch_critic_loss += critic_loss.data
             
-            #self.actor_model.eval()
-            self.actor_optimizer.zero_grad()
-            self.critic_optimizer.zero_grad() if mode == "internal" else \
-                self.external_critic_optimizer.zero_grad()
-            #total_loss.backward()
-            actor_loss_leaf.backward()
-            self.actor_optimizer.step()
-            critic_loss_leaf.backward(retain_graph=True)
-            self.critic_optimizer.step() if mode == "internal" else \
-                self.external_critic_optimizer.step()'''
-    def update_models (
+            
+    def _update_models (
         self,
     ):
-        actor_loss_leaf = Variable(self.global_actor_loss.data/8, requires_grad=True)
-        critic_loss_leaf = Variable(self.global_critic_loss.data/8, requires_grad=True)
+        actor_loss_leaf = Variable(self.batch_actor_loss.data/self.main_batch_size, 
+                                   requires_grad=True)
+        critic_loss_leaf = Variable(self.batch_critic_loss.data/self.main_batch_size,
+                                    requires_grad=True)
         #total_loss = actor_loss + 0.5*critic_loss
         #print(total_loss)
         #total_loss = Variable(total_loss.data, requires_grad=True)
@@ -348,8 +327,8 @@ class PPOTrainer(BaseTrainer):
         self.critic_optimizer.step() 
         #if mode == "internal" else \
         #    self.external_critic_optimizer.step()
-        self.global_actor_loss = torch.tensor(0., device=self.device)
-        self.global_critic_loss = torch.tensor(0., device=self.device)
+        self.batch_actor_loss = torch.tensor(0., device=self.device)
+        self.batch_critic_loss = torch.tensor(0., device=self.device)
     
     def external_train (
         self,
