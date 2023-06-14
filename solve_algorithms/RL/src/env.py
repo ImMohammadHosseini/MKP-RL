@@ -14,7 +14,6 @@ class KnapsackAssignmentEnv (gym.Env):
         self,
         dim: int,
         info:dict,
-        #state_dataClass: ExternalStatePrepare,
         no_change_long:int,
         knapsackObsSize:int,
         instanceObsSize:int,
@@ -59,7 +58,6 @@ class KnapsackAssignmentEnv (gym.Env):
         self.info = info
         self.knapsackObsSize = knapsackObsSize
         self.instanceObsSize = instanceObsSize
-        #self.set_statePrepare(state_dataClass)
         self.no_change_long = no_change_long
         
     
@@ -87,17 +85,13 @@ class KnapsackAssignmentEnv (gym.Env):
         
     def reset (self): 
         self.no_change = 0#TODO
-        #super().reset(seed=seed)
         for statePrepare in self.statePrepares: statePrepare.reset()
         externalObservation = self._get_obs()
-        #SOD = np.array([[[1.]*self.dim]]*self.batchSize)
         EOD = np.array([[[2.]*self.dim]]*self.batchSize)
-        #PAD = np.array([[[0.]*self.dim]]*self.batchSize)
         
         externalObservation = np.append(np.append(externalObservation[
             "instance_value"],EOD, axis=1), np.append(externalObservation["knapsack"], 
-                                         EOD, axis=1),axis=1)#,
-                                        # axis=0)
+                                         EOD, axis=1),axis=1)
         info = self._get_info()
 
         externalObservation = torch.tensor(externalObservation, 
@@ -116,14 +110,11 @@ class KnapsackAssignmentEnv (gym.Env):
             return None, externalReward, terminated, info
         
         externalObservation = self._get_obs()
-        #ACT = np.zeros((1,self.dim))
-        SOD = np.array([[1.]*self.dim])
         EOD = np.array([[2.]*self.dim])
-        PAD = np.array([[0.]*self.dim])
+
         externalObservation = np.append(np.append(externalObservation[
             "instance_value"],EOD, axis=0), np.append(externalObservation["knapsack"], 
-                                         EOD, axis=0),axis=0)#,
-                                         #axis=0)
+                                         EOD, axis=0),axis=0)
         
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
