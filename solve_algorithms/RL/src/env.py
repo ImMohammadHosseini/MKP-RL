@@ -14,8 +14,11 @@ class KnapsackAssignmentEnv (gym.Env):
         self,
         dim: int,
         info:dict,
-        state_dataClass: ExternalStatePrepare,
+        #state_dataClass: ExternalStatePrepare,
         no_change_long:int,
+        knapsackObsSize:int,
+        instanceObsSize:int,
+        batchSize:int,
         device = "cpu",
     ):
         self.dim = dim
@@ -23,73 +26,83 @@ class KnapsackAssignmentEnv (gym.Env):
         self.observation_space = spaces.Dict(
             {
                 "knapsack": spaces.Box(low=np.array(
-                    [[info['CAP_LOW'], info['CAP_LOW'], info['CAP_LOW'], 
-                     info['CAP_LOW'], info['CAP_LOW'],0]]*state_dataClass.knapsackObsSize), 
+                    [[[info['CAP_LOW'], info['CAP_LOW'], info['CAP_LOW'], 
+                     info['CAP_LOW'], info['CAP_LOW'],0]]*knapsackObsSize]*batchSize), 
                                        high=np.array(
-                    [[info['CAP_HIGH'], info['CAP_HIGH'], info['CAP_HIGH'],
-                     info['CAP_HIGH'], info['CAP_HIGH'],0]]*state_dataClass.knapsackObsSize), 
-                                       shape=(state_dataClass.knapsackObsSize,
+                    [[[info['CAP_HIGH'], info['CAP_HIGH'], info['CAP_HIGH'],
+                     info['CAP_HIGH'], info['CAP_HIGH'],0]]*knapsackObsSize]*batchSize), 
+                                       shape=(batchSize, knapsackObsSize,
                                               self.dim), dtype=int),
                 "instance_value": spaces.Box(low=np.array(
-                    [[info['WEIGHT_LOW'], info['WEIGHT_LOW'], info['WEIGHT_LOW'], 
+                    [[[info['WEIGHT_LOW'], info['WEIGHT_LOW'], info['WEIGHT_LOW'], 
                      info['WEIGHT_LOW'], info['WEIGHT_LOW'], 
-                     info['VALUE_LOW']]]*state_dataClass.instanceObsSize), 
+                     info['VALUE_LOW']]]*instanceObsSize]*batchSize), 
                                        high=np.array(
-                    [[info['WEIGHT_HIGH'], info['WEIGHT_HIGH'], info['WEIGHT_HIGH'],
+                    [[[info['WEIGHT_HIGH'], info['WEIGHT_HIGH'], info['WEIGHT_HIGH'],
                      info['WEIGHT_HIGH'], info['WEIGHT_HIGH'], 
-                     info['VALUE_HIGH']]]*state_dataClass.instanceObsSize), 
-                                       shape=(state_dataClass.instanceObsSize,
+                     info['VALUE_HIGH']]]*instanceObsSize]*batchSize), 
+                                       shape=(batchSize, instanceObsSize,
                                               self.dim), dtype=int),
             }
         )
         self.action_space = spaces.Box(low=np.array([[0,0]] * \
-                                                    state_dataClass.knapsackObsSize), 
-                                       high=np.array([[state_dataClass.knapsackObsSize, 
-                                                       state_dataClass.instanceObsSize]] * \
-                                                     state_dataClass.knapsackObsSize), 
+                                                    knapsackObsSize), 
+                                       high=np.array([[knapsackObsSize, 
+                                                       instanceObsSize]] * \
+                                                     knapsackObsSize), 
                                        dtype=int
         )
         
         super().__init__()
         self.device = device
-        self.set_statePrepare(state_dataClass)
-        self.statePrepare.normalizeData(info['CAP_HIGH'], info['VALUE_HIGH'])
+        self.batchSize = batchSize
+        self.info = info
+        self.knapsackObsSize = knapsackObsSize
+        self.instanceObsSize = instanceObsSize
+        #self.set_statePrepare(state_dataClass)
         self.no_change_long = no_change_long
         
     
-    def set_statePrepare (
+    def setStatePrepare (
         self,
-        state_dataClass: ExternalStatePrepare,
+        stateDataClasses: np.ndarray,
     ):
-        self.statePrepare = state_dataClass
+        self.statePrepares = stateDataClasses
+        for statePrepare in self.statePrepares: 
+            statePrepare.normalizeData(self.info['CAP_HIGH'], self.info['VALUE_HIGH'])
 
     def _get_obs (self) -> dict:
-        stateCaps, stateWeightValues = self.statePrepare.getObservation()
-        
-        return {"knapsack": stateCaps, "instance_value": stateWeightValues}
+        batchCaps = np.zeros((0,self.knapsackObsSize,6)); 
+        batchWeightValues = np.zeros((0,self.instanceObsSize+1,6))
+        for statePrepare in self.statePrepares:
+            stateCaps, stateWeightValues = statePrepare.getObservation()
+            batchCaps = np.append(batchCaps, np.expand_dims(stateCaps, 0), 0) 
+            batchWeightValues = np.append(batchWeightValues, 
+                                          np.expand_dims(stateWeightValues, 0), 0)
+        return {"knapsack": batchCaps, "instance_value":batchWeightValues}
         
     def _get_info (self):
         return ""
         
         
     def reset (self): 
-        self.no_change = 0
+        self.no_change = 0#TODO
         #super().reset(seed=seed)
-        self.statePrepare.reset()
+        for statePrepare in self.statePrepares: statePrepare.reset()
         externalObservation = self._get_obs()
-        SOD = np.array([[1.]*self.dim])
-        EOD = np.array([[2.]*self.dim])
-        PAD = np.array([[0.]*self.dim])
-        #ACT = np.zeros((1,self.dim))
+        #SOD = np.array([[[1.]*self.dim]]*self.batchSize)
+        EOD = np.array([[[2.]*self.dim]]*self.batchSize)
+        #PAD = np.array([[[0.]*self.dim]]*self.batchSize)
+        
         externalObservation = np.append(np.append(externalObservation[
-            "instance_value"],EOD, axis=0), np.append(externalObservation["knapsack"], 
-                                         EOD, axis=0),axis=0)#,
+            "instance_value"],EOD, axis=1), np.append(externalObservation["knapsack"], 
+                                         EOD, axis=1),axis=1)#,
                                         # axis=0)
         info = self._get_info()
 
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
-                                           device=self.device).unsqueeze(dim=0)
+                                           device=self.device)#.unsqueeze(dim=0)
         return externalObservation, info
     
     def step (self, step_actions):
