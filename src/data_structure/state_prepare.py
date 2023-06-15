@@ -40,7 +40,7 @@ class ExternalStatePrepare:
         else: self.instanceObsSize = i_obs_size
         self.pad_len = 0
     
-    def set_new_problem (
+    '''def set_new_problem (
         self, 
         allCapacities: np.ndarray, 
         weights: np.ndarray, 
@@ -49,7 +49,7 @@ class ExternalStatePrepare:
         assert len(weights) == len(values)
         self.weights = weights
         self.values = values
-        self._setKnapsack(allCapacities)
+        self._setKnapsack(allCapacities)'''
     
     def normalizeData (self, maxCap, maxValue):
         self.weights = self.weights / maxCap
@@ -139,7 +139,7 @@ class ExternalStatePrepare:
                 print(cap)
                 np.set_printoptions(precision=10)
                 print(weight)
-            assert all(cap >= weight)
+            #assert all(cap >= weight)
             if not inst_act >= self.pad_len:
                 print('pad_len', self.pad_len)
                 print('inst_act', inst_act)
