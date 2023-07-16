@@ -50,7 +50,7 @@ class GreedySelect():
                continue
             step_acts = np.append(step_acts, accepted_actions, 0)
         self.statePrepare.changeNextState(step_acts)
-        self.score_ratio()
+        return self.score_ratio()
         
     
     def score_ratio (self):
@@ -59,6 +59,7 @@ class GreedySelect():
             score_ratio += ks.score_ratio()
             remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
         remain_cap_ratio = np.mean(remain_cap_ratio)
-        print('score_ratio:', score_ratio)
-        print('remain_cap_ratio:', remain_cap_ratio)
+        #print('score_ratio:', score_ratio)
+        #print('remain_cap_ratio:', remain_cap_ratio)
+        return score_ratio
     
