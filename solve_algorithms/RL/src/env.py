@@ -65,12 +65,10 @@ class KnapsackAssignmentEnv (gym.Env):
         stateDataClasses: np.ndarray,
     ):
         self.statePrepares = stateDataClasses
-        for statePrepare in self.statePrepares: 
-            statePrepare.normalizeData(self.info['CAP_HIGH'], self.info['VALUE_HIGH'])
-
+        
     def _get_obs (self) -> dict:
         batchCaps = np.zeros((0,self.knapsackObsSize,6)); 
-        batchWeightValues = np.zeros((0,self.instanceObsSize+1,6))
+        batchWeightValues = np.zeros((0,self.instanceObsSize,6))
         for statePrepare in self.statePrepares:
             stateCaps, stateWeightValues = statePrepare.getObservation()
             batchCaps = np.append(batchCaps, np.expand_dims(stateCaps, 0), 0) 
@@ -83,13 +81,14 @@ class KnapsackAssignmentEnv (gym.Env):
         
         
     def reset (self): 
-        self.no_change = 0#TODO
+        self.no_change = 0
         for statePrepare in self.statePrepares: statePrepare.reset()
         externalObservation = self._get_obs()
+        SOD = np.array([[[1.]*self.dim]]*self.main_batch_size)
         EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
         
-        externalObservation = np.append(np.append(externalObservation[
-            "instance_value"],EOD, axis=1), np.append(externalObservation["knapsack"], 
+        externalObservation = np.append(np.append(SOD, np.append(externalObservation[
+            "instance_value"],EOD, axis=1),axis=1), np.append(externalObservation["knapsack"], 
                                          EOD, axis=1),axis=1)
         info = self._get_info()
 
@@ -98,11 +97,12 @@ class KnapsackAssignmentEnv (gym.Env):
                                            device=self.device)#.unsqueeze(dim=0)
         return externalObservation, info
     
-    def step (self, step_actions, sp):
+    def step (self, step_actions):
         externalRewards = []
         terminated = False
         for index in range(self.main_batch_size):
             invalid_action_end_index = max(np.where(step_actions[index] == -1)[0])
+            #print('max ', invalid_action_end_index)
             if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
             externalRewards.append(self.statePrepares[index].changeNextState(
                 step_actions[index][invalid_action_end_index+1:]))               
@@ -116,10 +116,11 @@ class KnapsackAssignmentEnv (gym.Env):
             return None, externalRewards, terminated, info
         
         externalObservation = self._get_obs()
+        SOD = np.array([[[1.]*self.dim]]*self.main_batch_size)
         EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
         
-        externalObservation = np.append(np.append(externalObservation[
-            "instance_value"],EOD, axis=1), np.append(externalObservation["knapsack"], 
+        externalObservation = np.append(np.append(SOD, np.append(externalObservation[
+            "instance_value"],EOD, axis=1),axis=1), np.append(externalObservation["knapsack"], 
                                          EOD, axis=1),axis=1)
         
         externalObservation = torch.tensor(externalObservation, 

@@ -11,7 +11,7 @@ class RandomSelect ():
         state_dataClass: ExternalStatePrepare,
     ):
         self.statePrepare = state_dataClass
-        self.random_num = 3000
+        self.random_num = 100
         self.no_change_long = 1e+3
         
     def _choose_actions_two_random (
@@ -70,7 +70,6 @@ class RandomSelect ():
                #    print(no_change)
                continue
             step_acts = np.append(step_acts, accepted_actions, 0)
-        print(len(step_acts))
         self.statePrepare.changeNextState(step_acts)
         self.score_ratio()
         
@@ -86,7 +85,6 @@ class RandomSelect ():
                #    print(no_change)
                continue
             step_acts = np.append(step_acts, accepted_actions, 0)
-        print(len(step_acts))
         self.statePrepare.changeNextState(step_acts)
         self.score_ratio()
     
