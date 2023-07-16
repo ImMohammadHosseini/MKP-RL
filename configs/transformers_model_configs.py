@@ -14,10 +14,10 @@ class TransformerKnapsackConfig (object):
         inst_obs_size: int,
         knapsack_obs_size: int,
         problem_dim: int,
-        nhead: int = 5,
-        d_hid: int = 16,
+        nhead: int = 4,
+        d_hid: int = 32,
         num_encoder_layers: int = 2,
-        num_decoder_layers: int = 2,
+        num_decoder_layers: int = 3,
         dropout: float = 0.1,
         first_train_lr = 0.01,
         first_train_epoc = 100, 
@@ -29,7 +29,7 @@ class TransformerKnapsackConfig (object):
         self.knapsack_obs_size = knapsack_obs_size
         self.problem_dim = problem_dim
         self.input_dim = problem_dim + 1
-        self.output_dim = 2 * problem_dim
+        self.output_dim = 32#2 * self.input_dim
         self.max_length = self.inst_obs_size + self.knapsack_obs_size + 3
         self.nhead = nhead
         self.batch_first = batch_first
