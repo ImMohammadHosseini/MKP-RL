@@ -49,15 +49,19 @@ class CriticNetwork (nn.Module):
 class ExternalCriticNetwork (nn.Module):
     def __init__ (
         self, 
-        ext_input_dim: int, 
+        max_length: int,
+        input_dim: int, 
         hidden_dims: List = [512, 128, 16]
     ):
         super().__init__()
         self.name = 'mlp_external_cretic' 
         
+        self.lstm = nn.LSTM(input_size=input_dim, hidden_size=2*input_dim, 
+                            num_layers=1, batch_first=True, bidirectional=True)
+        #sd = self.lstm.state_dict()
         self.flatten = nn.Flatten()
         modules = []
-        input_dim = ext_input_dim
+        input_dim = input_dim*max_length*4
         for h_dim in hidden_dims:
             modules.append(
                 nn.Sequential(
@@ -69,7 +73,8 @@ class ExternalCriticNetwork (nn.Module):
         self.critic = nn.Sequential(*modules)
     
     def forward(self, external):
-        return self.critic(self.flatten(external))
+        lstm, _ = self.lstm(external)
+        return self.critic(self.flatten(lstm))
     
     
     
