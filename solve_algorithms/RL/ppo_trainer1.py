@@ -4,7 +4,7 @@
 """
 import torch
 import numpy as np
-from torch.optim import AdamW
+from torch.optim import AdamW,SGD, RMSprop
 from typing import List, Optional
 import time
 
@@ -64,6 +64,7 @@ class PPOTrainer(BaseTrainer):
         self.critic_model = self.critic_model.to(self.device)
         
         if actor_optimizer is None:
+            print(self.actor_model.parameters())
             self.actor_optimizer = AdamW(
                 self.actor_model.parameters(), lr=self.config.actor_lr
             )#filter(lambda p: p.requires_grad, 
@@ -150,13 +151,17 @@ class PPOTrainer(BaseTrainer):
             
             eCap = knapSack.getExpectedCap()
             weight = statePrepares[index].getObservedInstWeight(inst_act)
+            prompt[index] = torch.cat([prompt[index][1:], 
+                                       torch.cat([inst, ks], 1)], 0)
+            #prompt[index] = torch.cat([prompt[index][1:],inst], 0)
+            #prompt[index] = torch.cat([prompt[index][1:],ks], 0)
+
             if inst_act < statePrepares[index].pad_len or inst_act in accepted_actions[index,:,0]: 
                     rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
             
             if all(eCap >= weight):
-                prompt[index] = torch.cat([prompt[index][1:], 
-                                           torch.cat([inst, ks], 1)], 0)
+                
                 #prompt[index] = torch.cat([prompt[index][1:], ks], 0)
                 
                 value = statePrepares[index].getObservedInstValue(inst_act)
@@ -166,7 +171,7 @@ class PPOTrainer(BaseTrainer):
                 accepted_actions[index] = np.append(accepted_actions[index][1:],
                                                     [[inst_act, ks_act]], 0)
             else:
-                rewards.append(0)#-self.info['VALUE_LOW'])
+                rewards.append(-self.info['VALUE_LOW'])
         return torch.tensor(rewards, device=self.device)
     
     def steps (
@@ -194,7 +199,7 @@ class PPOTrainer(BaseTrainer):
             sumRewards += reward
             
             
-        values = self.critic_model(externalObservation)
+        values = self.critic_model(externalObservation).squeeze(1)
         return actions, accepted_actions, sumProbs, values, sumRewards
         
     def test_step (
@@ -244,7 +249,12 @@ class PPOTrainer(BaseTrainer):
         memoryVal = torch.cat(self.memory_val, 1)
         memoryRwd = torch.cat(self.memory_reward, 1)
         memoryDon = torch.cat(self.memory_done, 1)
-        
+        #print(memoryObs.size()) 
+        #print(memoryAct.size()) 
+        #print(memoryPrb.size())
+        #print(memoryVal.size())
+        #print(memoryRwd.size())
+        #print(memoryDon.size())
         
         for _ in range(self.config.ppo_epochs):
             batches = self.generate_batch()
@@ -255,7 +265,7 @@ class PPOTrainer(BaseTrainer):
             
             for index in range(self.main_batch_size):
                 obs = memoryObs[index].squeeze()
-                acts = memoryAct[index].squeeze()
+                acts = memoryAct[index]
                 probs = memoryPrb[index].squeeze()
                 rewards = memoryRwd[index].squeeze()
                 vals = memoryVal[index].squeeze()
@@ -288,17 +298,18 @@ class PPOTrainer(BaseTrainer):
                     for i in range(0, self.config.generat_link_number):
                         generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
                             batchObs.to(self.device), self.config.generat_link_number, prompt)
-                        inst_dist = Categorical(generatedInstance)
-                        ks_dist = Categorical(generatedKnapsack)
+                        inst_dist = Categorical(generatedInstance.squeeze())
+                        ks_dist = Categorical(generatedKnapsack.squeeze())
                         batchActs = batchActs.to(self.device)
                         
-                        inst_log_probs = inst_dist.log_prob(batchActs[:,i,0].unsqueeze(1))
-                        ks_log_probs = ks_dist.log_prob(batchActs[:,i,1].unsqueeze(1))
+                        #print('a',batchActs[:,i,0].size())
+                        inst_log_probs = inst_dist.log_prob(batchActs[:,i,0])#.unsqueeze(1))
+                        ks_log_probs = ks_dist.log_prob(batchActs[:,i,1])#.unsqueeze(1))
                         newProbs = inst_log_probs + ks_log_probs
                         new_log_probs += newProbs.squeeze()
-                        
-                    newVal = self.critic_model(batchObs.to(self.device)).squeeze()
                     
+                    newVal = self.critic_model(batchObs.to(self.device)).squeeze()
+
                     prob_ratio = (new_log_probs.exp() / batchProbs.exp()).to(self.device)
                     weighted_probs = advantage[batch] * prob_ratio
                     weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
@@ -322,46 +333,19 @@ class PPOTrainer(BaseTrainer):
             critic_loss_leaf = Variable(batch_critic_loss.data/count, requires_grad=True)
             
             total_loss = actor_loss_leaf + 0.5*critic_loss_leaf
-            
+            #print(actor_loss_leaf)
+            #print(critic_loss_leaf)
             self.actor_optimizer.zero_grad()
-            self.critic_optimizer.zero_grad()
-
-            total_loss.backward()
-            #actor_loss_leaf.backward()
-            self.actor_optimizer.step()
             #self.critic_optimizer.zero_grad()
-            #critic_loss_leaf.backward()#retain_graph=True
+
+            #total_loss.backward()
+            actor_loss_leaf.backward()
+            self.actor_optimizer.step()
+            self.critic_optimizer.zero_grad()
+            critic_loss_leaf.backward()#retain_graph=True
             self.critic_optimizer.step()
                     
         self._reset_memory()
-        
-    def _update_models (
-        self,
-    ):
-        actor_loss_leaf = Variable(self.batch_actor_loss.data/self.main_batch_size, 
-                                   requires_grad=True)
-        critic_loss_leaf = Variable(self.batch_critic_loss.data/self.main_batch_size,
-                                    requires_grad=True)
-        #print('al', float(actor_loss_leaf), '\ncl',float(critic_loss_leaf))
-        #total_loss = actor_loss_leaf + 0.5*critic_loss_leaf
-        #total_loss = Variable(total_loss.data, requires_grad=True)
-        
-        #self.actor_model.eval()
-        self.actor_optimizer.zero_grad()
-        self.ref_optimizer.zero_grad()
-        self.critic_optimizer.zero_grad() 
-        #if mode == "internal" else \
-        #    self.external_critic_optimizer.zero_grad()
-        #total_loss.backward()
-        actor_loss_leaf.backward()
-        self.actor_optimizer.step()
-        critic_loss_leaf.backward(retain_graph=True)
-        self.ref_optimizer.step()
-        self.critic_optimizer.step() 
-        #if mode == "internal" else \
-        #    self.external_critic_optimizer.step()
-        self.batch_actor_loss = torch.tensor(0., device=self.device)
-        self.batch_critic_loss = torch.tensor(0., device=self.device)
     
             
     def load_models (self):
