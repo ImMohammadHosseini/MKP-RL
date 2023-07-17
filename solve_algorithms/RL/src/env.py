@@ -87,9 +87,11 @@ class KnapsackAssignmentEnv (gym.Env):
         SOD = np.array([[[1.]*self.dim]]*self.main_batch_size)
         EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
         
-        externalObservation = np.append(np.append(SOD, np.append(externalObservation[
-            "instance_value"],EOD, axis=1),axis=1), np.append(externalObservation["knapsack"], 
-                                         EOD, axis=1),axis=1)
+        #externalObservation = np.append(np.append(SOD, np.append(externalObservation[
+        #    "instance_value"],EOD, axis=1),axis=1), np.append(externalObservation["knapsack"], 
+        #                                 EOD, axis=1),axis=1)
+        externalObservation = np.append(externalObservation["instance_value"], 
+                                        externalObservation["knapsack"], axis=1)
         info = self._get_info()
 
         externalObservation = torch.tensor(externalObservation, 
@@ -104,6 +106,7 @@ class KnapsackAssignmentEnv (gym.Env):
             invalid_action_end_index = max(np.where(step_actions[index] == -1)[0])
             #print('max ', invalid_action_end_index)
             if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
+            else: self.no_change=0
             externalRewards.append(self.statePrepares[index].changeNextState(
                 step_actions[index][invalid_action_end_index+1:]))               
             terminated = terminated or self.statePrepares[index].is_terminated()
@@ -119,9 +122,11 @@ class KnapsackAssignmentEnv (gym.Env):
         SOD = np.array([[[1.]*self.dim]]*self.main_batch_size)
         EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
         
-        externalObservation = np.append(np.append(SOD, np.append(externalObservation[
-            "instance_value"],EOD, axis=1),axis=1), np.append(externalObservation["knapsack"], 
-                                         EOD, axis=1),axis=1)
+        #externalObservation = np.append(np.append(SOD, np.append(externalObservation[
+        #    "instance_value"],EOD, axis=1),axis=1), np.append(externalObservation["knapsack"], 
+        #                                 EOD, axis=1),axis=1)
+        externalObservation = np.append(externalObservation["instance_value"], 
+                                        externalObservation["knapsack"], axis=1)
         
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
