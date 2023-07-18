@@ -70,11 +70,12 @@ class EncoderMLPKnapsack (nn.Module):
         promp_tensor: Optional[torch.tensor] = None,   
         mode = 'actor',
     ):
-        PAD1 = [0]*12#self.config.output_dim
+        PAD = [0]*6#self.config.output_dim
+        SOD = [1]*6#self.config.output_dim
+        EOD = [2]*6#self.config.output_dim
+        PAD1 = [0]*12
         if promp_tensor == None:
-            start_tokens = [[PAD1]]*external_obs.size(0)#[[SOD1]]*external_obs.size(0)
-            
-            
+            start_tokens = [[PAD1]]*external_obs.size(0)#[[SOD1]]*external_obs.size(0)   
         else: 
             start_tokens = promp_tensor.tolist()
             
@@ -82,23 +83,48 @@ class EncoderMLPKnapsack (nn.Module):
             self.pad_left(
                 sequence=start_tokens,
                 final_length=
-                2*generat_link_number, 
+                generat_link_number, 
                 padding_token=PAD1
                 ),
             dtype=torch.float
         )
+        encoder_padding_mask = torch.zeros_like(external_obs[:,:,0], device=self.device)
+        encoder_padding_mask[torch.all(external_obs == torch.tensor(PAD, device=self.device), 
+                                       dim=2)] = 1
+        
+        encoder_padding_mask = torch.zeros_like(external_obs[:,:,0], device=self.device)
+        encoder_padding_mask[torch.all(external_obs == torch.tensor(PAD, device=self.device), 
+                                       dim=2)] = 1
+        
+        encoder_mask = torch.zeros_like(external_obs[:,:,0])
+        encoder_mask[torch.all(external_obs == torch.tensor(SOD, device=self.device), 
+                               dim=2)] = 1
+        encoder_mask[torch.all(external_obs == torch.tensor(EOD, device=self.device), 
+                               dim=2)] = 1
+        encoder_mask = torch.cat([encoder_mask]*self.config.nhead , 0)
+        
+        encoder_mask_sqr = torch.matmul(encoder_mask.to(torch.device('cpu')).unsqueeze(2), 
+                                        encoder_mask.to(torch.device('cpu')).unsqueeze(1))        
         promp_tensor = promp_tensor.to(self.device)
         external_obs = external_obs.to(self.device)
-        next_instance, next_ks = self.forward(external_obs)
+        encoder_mask_sqr = encoder_mask_sqr.to(self.device)
+        encoder_padding_mask = encoder_padding_mask.to(self.device)
+
+        next_instance, next_ks = self.forward(external_obs, encoder_mask_sqr, 
+                                              encoder_padding_mask)
         return next_instance.unsqueeze(1), next_ks.unsqueeze(1), promp_tensor
     
     def forward (
         self,
         external_obs:torch.tensor,
+        encoder_mask:torch.tensor,
+        encoder_padding_mask: torch.tensor,
     ):
         external_obs = external_obs.to(torch.float32)
         ext_embedding = self.en_embed(external_obs)
-        encod = self.encoder(self.en_position_encode(ext_embedding))
+        encod = self.encoder(self.en_position_encode(ext_embedding),
+                             mask=encoder_mask, 
+                             src_key_padding_mask=encoder_padding_mask)
         flat = self.flatten(encod)
         mlp = self.mlp(flat)
         
