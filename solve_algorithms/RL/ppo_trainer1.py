@@ -4,9 +4,9 @@
 """
 import torch
 import numpy as np
-from torch.optim import AdamW,SGD, RMSprop
+from torch.optim import AdamW, SGD, RMSprop
 from typing import List, Optional
-import time
+#import time
 
 
 from .src.core import (
@@ -20,14 +20,14 @@ from .src.core import (
 )
 from torch.distributions.categorical import Categorical
 from src.data_structure.state_prepare import ExternalStatePrepare
-from copy import deepcopy
+#from copy import deepcopy
 
 from torch.autograd import Variable
 from .src.base_trainer import BaseTrainer
 from configs.ppo_configs import PPOConfig
 from os import path, makedirs
-from torchrl.objectives import ClipPPOLoss
-from torchrl.objectives.value import GAE
+#from torchrl.objectives import ClipPPOLoss
+#from torchrl.objectives.value import GAE
 
 class PPOTrainer(BaseTrainer):
     r"""
@@ -55,7 +55,6 @@ class PPOTrainer(BaseTrainer):
         
         
         self.device = device
-        self.softmax = torch.nn.Softmax()
         self.info = info
         self.main_batch_size = main_batch_size
         
@@ -64,7 +63,6 @@ class PPOTrainer(BaseTrainer):
         self.critic_model = self.critic_model.to(self.device)
         
         if actor_optimizer is None:
-            print(self.actor_model.parameters())
             self.actor_optimizer = AdamW(
                 self.actor_model.parameters(), lr=self.config.actor_lr
             )#filter(lambda p: p.requires_grad, 
@@ -151,8 +149,7 @@ class PPOTrainer(BaseTrainer):
             
             eCap = knapSack.getExpectedCap()
             weight = statePrepares[index].getObservedInstWeight(inst_act)
-            prompt[index] = torch.cat([prompt[index][1:], 
-                                       torch.cat([inst, ks], 1)], 0)
+            
             #prompt[index] = torch.cat([prompt[index][1:],inst], 0)
             #prompt[index] = torch.cat([prompt[index][1:],ks], 0)
 
@@ -161,7 +158,9 @@ class PPOTrainer(BaseTrainer):
                     continue
             
             if all(eCap >= weight):
-                
+                prompt[index] = torch.cat([prompt[index][1:], 
+                                           torch.cat([inst, ks], 1)], 0)
+                #print(prompt[index])
                 #prompt[index] = torch.cat([prompt[index][1:], ks], 0)
                 
                 value = statePrepares[index].getObservedInstValue(inst_act)
@@ -243,6 +242,7 @@ class PPOTrainer(BaseTrainer):
     def train_minibatch (
         self, 
     ):
+        #print('h')
         memoryObs = torch.cat(self.memory_observation, 1)
         memoryAct = torch.cat(self.memory_action, 1) 
         memoryPrb = torch.cat(self.memory_prob, 1)
@@ -280,6 +280,7 @@ class PPOTrainer(BaseTrainer):
                         a_t += discount*(rewards[k] + self.config.gamma*vals[k+1]*\
                                          (1-int(done[k])) - vals[k])                
                         discount *= self.config.gamma*self.config.gae_lambda
+                    #print(a_t)
                     advantage[t] = a_t
             
                 for batch in batches:
@@ -310,7 +311,7 @@ class PPOTrainer(BaseTrainer):
                     
                     newVal = self.critic_model(batchObs.to(self.device)).squeeze()
 
-                    prob_ratio = (new_log_probs.exp() / batchProbs.exp()).to(self.device)
+                    prob_ratio = (new_log_probs - batchProbs).exp().to(self.device)
                     weighted_probs = advantage[batch] * prob_ratio
                     weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
                                 1+self.config.cliprange)*advantage[batch]
