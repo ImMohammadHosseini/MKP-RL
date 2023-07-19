@@ -5,7 +5,7 @@
 
 import torch
 from torch import nn
-from typing import  List
+from typing import List
 
 class CriticNetwork (nn.Module):
     def __init__ (self, ext_input_dim, int_input_dim, 
