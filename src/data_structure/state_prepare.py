@@ -3,6 +3,7 @@
 
 """
 import numpy as np
+from numpy import unravel_index
 from dataclasses import dataclass
 from typing import List
 from .knapsack import Knapsack
@@ -33,27 +34,29 @@ class ExternalStatePrepare:
         self.ks_main_data = ks_main_data
         self.instance_main_data = instance_main_data
         
-        inst_sim = cosine_similarity(instance_main_data, weights, dense_output=False)
+        inst_sim = cosine_similarity(instance_main_data[:len(weights)], weights, dense_output=False)
         ks_sim = cosine_similarity(ks_main_data, allCapacities, dense_output=False)
         
         if not (np.diagonal(inst_sim) > .97).all():
-            order = [] 
-            for sim_part in inst_sim:
-                maxarg = sim_part.argmax()
-                order.append(maxarg)
-                inst_sim[:,maxarg] = 0
+            order = [0]*len(weights)
+            for _ in range(len(inst_sim)):
+                index = unravel_index(inst_sim.argmax(), inst_sim.shape)
+                order[index[0]] = index[1]
+                inst_sim[:,index[1]] = 0
+                inst_sim[index[0],:] = 0
             self.weights = weights[order]
             self.values = values[order]
         else :
             self.weights = weights
             self.values = values
-  
+        
         if not (np.diagonal(ks_sim) > .97).all():
-            order = [] 
-            for sim_part in ks_sim:
-                maxarg = sim_part.argmax()
-                order.append(maxarg)
-                ks_sim[:,maxarg] = 0
+            order = [0]*len(allCapacities)
+            for _ in range(len(ks_sim)):
+                index = unravel_index(ks_sim.argmax(), ks_sim.shape)
+                order[index[0]] = index[1]
+                ks_sim[:,index[1]] = 0
+                ks_sim[index[0],:] = 0
             self._setKnapsack(allCapacities[order])
         else :
             self._setKnapsack(allCapacities)
@@ -92,33 +95,33 @@ class ExternalStatePrepare:
 
         ks_sim = cosine_similarity(self.ks_main_data, self.stateCaps, dense_output=False)
         if not (np.diagonal(ks_sim) > .97).all():
-            self.ks_order = [] 
-            for sim_part in ks_sim:
-                maxarg = sim_part.argmax()
-                self.ks_order.append(maxarg)
-                ks_sim[:,maxarg] = 0
+            self.ks_order = [0]*len(self.stateCaps)
+            for _ in range(len(ks_sim)):
+                index = unravel_index(ks_sim.argmax(), ks_sim.shape)
+                self.ks_order[index[0]] = index[1]
+                ks_sim[:,index[1]] = 0
+                ks_sim[index[0],:] = 0
             self.stateCaps = self.stateCaps[self.ks_order]
         
         self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps),1)), 
                                    axis=1)
         
-        inst_sim = cosine_similarity(self.instance_main_data, self.remainInstanceWeights, 
-                                     dense_output=False)
+        inst_sim = cosine_similarity(self.instance_main_data[:len(self.remainInstanceWeights)], 
+                                     self.remainInstanceWeights, dense_output=False)
         if not (np.diagonal(inst_sim) > .97).all():
-            order = [] 
-            for sim_part in inst_sim:
-                if (inst_sim == 0).all():
-                    break
-                maxarg = sim_part.argmax()
-                order.append(maxarg)
-                inst_sim[:,maxarg] = 0
+            order = [0]*len(self.remainInstanceWeights)
+            for _ in range(len(inst_sim)):
+                index = unravel_index(inst_sim.argmax(), inst_sim.shape)
+                order[index[0]] = index[1]
+                inst_sim[:,index[1]] = 0
+                inst_sim[index[0],:] = 0
             self.remainInstanceWeights = self.remainInstanceWeights[order]
             self.remainInstanceValues = self.remainInstanceValues[order]
         
         
         self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
         #print('pad ', self.pad_len)
-        #print('len ', len(self.remainInstanceWeights))
+        #print(self.remainInstanceWeights)
         if self.pad_len <= 0:
             self.pad_len = 0
             self.stateWeightValues = np.append(self.remainInstanceWeights[
