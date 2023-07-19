@@ -186,7 +186,7 @@ class PPOTrainer(BaseTrainer):
                                    device=self.device)
         
         prompt = None
-        accepted_actions = np.array([[[-1]*2]*self.config.internal_batch]*self.main_batch_size, dtype= int)
+        accepted_actions = np.array([[[-1]*2]*self.config.generat_link_number]*self.main_batch_size, dtype= int)
         
         for i in range(0, self.config.generat_link_number):
             generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
