@@ -20,10 +20,11 @@ class TransformerKnapsack (nn.Module):
         self,
         config,
         device: torch.device = torch.device("cpu"),
+        name = 'transformer',
     ):
         #torch.autograd.set_detect_anomaly(True)
         super().__init__()
-        self.name = 'transformer'
+        self.name = name
         self.config = config
         self.device = device
         
