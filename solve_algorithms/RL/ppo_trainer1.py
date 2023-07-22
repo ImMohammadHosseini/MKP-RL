@@ -79,6 +79,8 @@ class PPOTrainer(BaseTrainer):
         self.savePath = save_path +'/RL/PPOTrainer/'
         if path.exists(self.savePath):
             self.load_models()
+            self.pretrain_need = False
+        else: self.pretrain_need = True
             
         self.batch_actor_loss = torch.tensor(0., device=self.device)
         self.batch_critic_loss = torch.tensor(0., device=self.device)
@@ -188,9 +190,9 @@ class PPOTrainer(BaseTrainer):
         prompt = None
         accepted_actions = np.array([[[-1]*2]*self.config.generat_link_number]*self.main_batch_size, dtype= int)
         
-        for i in range(0, self.config.generat_link_number):
+        for step in range(0, self.config.generat_link_number):
             generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
-                externalObservation, self.config.generat_link_number, prompt)
+                step, externalObservation, prompt)
             act, prob = self._choose_actions(generatedInstance, generatedKnapsack)
             actions = torch.cat([actions, act.unsqueeze(1)], 1)
             reward = self.reward(act, accepted_actions, prompt, statePrepares)
@@ -296,16 +298,16 @@ class PPOTrainer(BaseTrainer):
                     new_log_probs = torch.tensor([0]*self.config.ppo_batch_size, 
                                                  dtype=torch.float64, device=self.device)
                     
-                    for i in range(0, self.config.generat_link_number):
+                    for step in range(0, self.config.generat_link_number):
                         generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
-                            batchObs.to(self.device), self.config.generat_link_number, prompt)
+                            step, batchObs.to(self.device), prompt)
                         inst_dist = Categorical(generatedInstance.squeeze())
                         ks_dist = Categorical(generatedKnapsack.squeeze())
                         batchActs = batchActs.to(self.device)
                         
                         #print('a',batchActs[:,i,0].size())
-                        inst_log_probs = inst_dist.log_prob(batchActs[:,i,0])#.unsqueeze(1))
-                        ks_log_probs = ks_dist.log_prob(batchActs[:,i,1])#.unsqueeze(1))
+                        inst_log_probs = inst_dist.log_prob(batchActs[:,step,0])#.unsqueeze(1))
+                        ks_log_probs = ks_dist.log_prob(batchActs[:,step,1])#.unsqueeze(1))
                         newProbs = inst_log_probs + ks_log_probs
                         new_log_probs += newProbs.squeeze()
                     
