@@ -10,11 +10,12 @@ from src.data_structure.state_prepare import ExternalStatePrepare
 class GreedySelect():
     def __init__ (
         self,
+        num_instance: int,
         state_dataClass: ExternalStatePrepare,
     ):
         self.statePrepare = state_dataClass
-        self.greedy_num = 3000
-        self.no_change_long = 1e+3
+        self.greedy_num = num_instance
+        self.no_change_long = 3
     
     def _choose_actions_greedy_firstFit (
         self,
@@ -28,12 +29,13 @@ class GreedySelect():
             if inst_idx >= self.statePrepare.pad_len:
                 weight = self.statePrepare.getObservedInstWeight(inst_idx)
                 for ks_idx in range(caps.shape[0]):
-                    knapSack = self.statePrepare.getKnapsack(ks_idx)
+                    ks_act = self.statePrepare.getRealKsAct(ks_idx)
+                    knapSack = self.statePrepare.getKnapsack(ks_act)
                     eCap = knapSack.getExpectedCap()
                     if all(eCap >= weight):
                         knapSack.removeExpectedCap(weight)
                         accepted_actions = np.append(accepted_actions, 
-                                                     [[inst_idx, ks_idx]], 0)
+                                                     [[inst_idx, ks_act]], 0)
                         break
         return accepted_actions
     
@@ -44,13 +46,14 @@ class GreedySelect():
         step_acts = np.zeros((0,2), dtype= int)
         no_change = 0
         while no_change < self.no_change_long:
+            
             accepted_actions = self._choose_actions_greedy_firstFit()
+            self.statePrepare.changeNextState(accepted_actions)
             if len(accepted_actions) == 0:
-               no_change +=1
-               continue
+                no_change +=1
+                continue
             step_acts = np.append(step_acts, accepted_actions, 0)
-        self.statePrepare.changeNextState(step_acts)
-        return self.score_ratio()
+        return self.score_ratio(), step_acts
         
     
     def score_ratio (self):
