@@ -103,7 +103,8 @@ class KnapsackAssignmentEnv (gym.Env):
         externalRewards = []
         terminated = False
         for index in range(self.main_batch_size):
-            invalid_action_end_index = max(np.where(step_actions[index] == -1)[0])
+            invalid_action_end_index = max(np.where(step_actions[index] == -1)[0], default=-1)
+            
             #print('max ', invalid_action_end_index)
             if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
             else: self.no_change=0

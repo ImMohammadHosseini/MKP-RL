@@ -19,10 +19,11 @@ class EncoderMLPKnapsack (nn.Module):
         config,
         device: torch.device = torch.device("cpu"),
         hidden_dims: List = [4096, 1024, 512],
+        name = 'transformerEncoderMLP',
     ):
         #torch.autograd.set_detect_anomaly(True)
         super().__init__()
-        self.name = 'transformerEncoderMLP'
+        self.name = name
         self.config = config
         self.device = device
         

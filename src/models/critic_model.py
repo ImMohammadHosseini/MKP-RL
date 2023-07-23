@@ -9,10 +9,11 @@ from typing import List
 
 class CriticNetwork (nn.Module):
     def __init__ (self, ext_input_dim, int_input_dim, 
-                  hidden_dims: List = [512, 128, 16]):
+                  hidden_dims: List = [512, 128, 16],
+                  name = 'mlp_cretic'):
         super().__init__()
         
-        self.name = 'mlp_cretic'
+        self.name = name
         self.flatten = nn.Flatten()
         
         modules = []
@@ -51,10 +52,11 @@ class ExternalCriticNetwork (nn.Module):
         self, 
         max_length: int,
         input_dim: int, 
-        hidden_dims: List = [512, 128, 16]
+        hidden_dims: List = [512, 128, 16],
+        name = 'mlp_external_cretic',
     ):
         super().__init__()
-        self.name = 'mlp_external_cretic' 
+        self.name = name 
         
         self.lstm = nn.LSTM(input_size=input_dim, hidden_size=2*input_dim, 
                             num_layers=1, batch_first=True, bidirectional=True)
@@ -66,7 +68,7 @@ class ExternalCriticNetwork (nn.Module):
             modules.append(
                 nn.Sequential(
                     nn.Linear(input_dim, out_features=h_dim),
-                    nn.Tanh())
+                    nn.ReLU())
             )
             input_dim = h_dim
         modules.append(nn.Sequential(nn.Linear(input_dim, 1)))    
