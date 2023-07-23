@@ -198,7 +198,7 @@ class TransformerKnapsack (nn.Module):
                             # mask=encoder_mask, src_key_padding_mask=encoder_padding_mask)
         
 
-        transfer_out = self.decoder(self.de_position_encode(int_embedding), 
+        transformer_out = self.decoder(self.de_position_encode(int_embedding), 
                                     encod, tgt_mask=decoder_mask)#, 
                                     #, memory_mask=memory_mask,
                                     #tgt_key_padding_mask=decoder_padding_mask)
@@ -207,18 +207,18 @@ class TransformerKnapsack (nn.Module):
         self.instance_outer = self.instance_outer.to(self.device)
         self.knapsack_outer = self.knapsack_outer.to(self.device)
         #self.value_out = self.value_out.to(self.device)
-        pos = step+1#self.generate_link_number - (step+1)
-        #print(self.softmax(self.instance_outer(transfer_out[:,-1,:self.config.output_dim//2])))
-        #print(transfer_out[:,pos])
-        #print(transfer_out)
+        pos = torch.cat([step.unsqueeze(0)+1]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
+        
+        out = transformer_out.gather(1,pos).squeeze(1)
         if mode == 'RL_train':
-            return transfer_out[:,pos], \
-                self.softmax(self.instance_outer(transfer_out[:,pos,:self.config.output_dim//2])), \
-                    self.softmax(self.knapsack_outer(transfer_out[:,pos,self.config.output_dim//2:]))
+            return out, \
+                self.softmax(self.instance_outer(out[:,:self.config.output_dim//2])), \
+                    self.softmax(self.knapsack_outer(out[:,:self.config.output_dim//2]))
+        
         
         elif mode == 'transformer_train':
-            return self.softmax(self.instance_outer(transfer_out[:,:,:self.config.output_dim//2])), \
-                    self.softmax(self.knapsack_outer(transfer_out[:,:,self.config.output_dim//2:]))
+            return self.softmax(self.instance_outer(transformer_out[:,:,:self.config.output_dim//2])), \
+                    self.softmax(self.knapsack_outer(transformer_out[:,:,self.config.output_dim//2:]))
         #elif mode == 'ref':
         #    return self.value_out(torch.nan_to_num(transfer_out[:,-1,:self.config.output_dim]))
     
