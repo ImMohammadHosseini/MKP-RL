@@ -18,6 +18,7 @@ from src.models.transformer import TransformerKnapsack
 from src.models.EncoderMLP import EncoderMLPKnapsack
 from src.models.critic_model import CriticNetwork, ExternalCriticNetwork
 from src.data_structure.state_prepare import ExternalStatePrepare
+from src.transformer_trainer import TransformerTrainer
 from solve_algorithms.RL.src.env import KnapsackAssignmentEnv
 from solve_algorithms.random_select import RandomSelect
 from solve_algorithms.greedy_select import GreedySelect
@@ -43,7 +44,7 @@ opts, args = parser.parse_args()
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 INFOS = {'CAP_LOW':80,
-         'CAP_HIGH':250, 
+         'CAP_HIGH':350, 
          'WEIGHT_LOW':10, 
          'WEIGHT_HIGH':100,
          'VALUE_LOW':3, 
@@ -54,7 +55,7 @@ INSTANCE_OBS_SIZE = opts.instances#2 * KNAPSACK_OBS_SIZE
 BATCH_SIZE = 1
 NO_CHANGE_LONG = 1#*BATCH_SIZE#int(1/8*(opts.instances // INSTANCE_OBS_SIZE))
 PROBLEMS_NUM = 1*BATCH_SIZE
-N_TRAIN_STEPS = 100000
+N_TRAIN_STEPS = 300000
 #NEW_PROBLEM_PER_EPISODE = 10
 N_TEST_STEPS = 10
 SAVE_PATH = 'pretrained/save_models'
@@ -97,13 +98,14 @@ def randomAlgorithm (statePrepare):
 def greedyAlgorithm (statePrepareList):
     greedyScores = []; 
     for statePrepare in statePrepareList:
-        greedy_select = GreedySelect(statePrepare)
+        greedy_select = GreedySelect(opts.instances, statePrepare)
         bestScore = 0
         for _ in range(10):
-            score = greedy_select.test_step()
+            score, _ = greedy_select.test_step()
             if score > bestScore:
                 bestScore = score
         greedyScores.append(bestScore)
+    print('kk')
     return greedyScores
 
    
@@ -111,11 +113,11 @@ def ppoInitializer ():
     ppoConfig = PPOConfig()
     modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
                                             opts.dim)
-    actorModel = TransformerKnapsack(modelConfig, DEVICE)#EncoderMLPKnapsack
+    actorModel = TransformerKnapsack(modelConfig, ppoConfig.generat_link_number, DEVICE)#EncoderMLPKnapsack
 
-    criticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_dim)
+    criticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
     
-    env = KnapsackAssignmentEnv(modelConfig.input_dim, INFOS, NO_CHANGE_LONG, 
+    env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
                                 KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, BATCH_SIZE, DEVICE)
     ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, BATCH_SIZE, ppoConfig, actorModel, 
                             criticModel, DEVICE)
@@ -126,14 +128,14 @@ def sacInitializer ():
     sacConfig = SACConfig()
     modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
                                             opts.dim)
-    actorModel = TransformerKnapsack(modelConfig, DEVICE)
-    criticLocal1 = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_dim,
+    actorModel = TransformerKnapsack(modelConfig, sacConfig.generat_link_number, DEVICE)
+    criticLocal1 = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim,
                                          name = 'criticLocal1')
-    criticLocal2 = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_dim,
+    criticLocal2 = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim,
                                          name = 'criticLocal2')
-    criticTarget1 = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_dim,
+    criticTarget1 = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim,
                                          name = 'criticTarget1')
-    criticTarget2 = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_dim,
+    criticTarget2 = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim,
                                          name = 'criticTarget2')
     env = KnapsackAssignmentEnv(modelConfig.input_dim, INFOS, NO_CHANGE_LONG, 
                                 KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, BATCH_SIZE, DEVICE)
@@ -173,7 +175,7 @@ def sac_train (env, sacTrainer, statePrepareList, greedyScores):
     n_steps = 0
     for i in tqdm(range(N_TRAIN_STEPS)):
         #batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, BATCH_SIZE)
-        batchs = [0]
+        batchs = [np.array([0])]
         for batch in batchs:
             env.setStatePrepare(statePrepares[batch])
             
@@ -183,7 +185,7 @@ def sac_train (env, sacTrainer, statePrepareList, greedyScores):
                 actions, accepted_actions, sumRewards = sacTrainer.steps(
                     externalObservation, env.statePrepares, done)
                 externalObservation_, externalReward, done, info = env.step(accepted_actions)
-                ppoTrainer.save_step (externalObservation, actions, sumRewards, 
+                sacTrainer.save_step (externalObservation, actions, sumRewards, 
                                       externalObservation_, done)
                 sacTrainer.train()
                 externalObservation = externalObservation_
@@ -215,7 +217,11 @@ def ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
     statePrepares = np.array(statePrepareList)
     #for statePrepare in statePrepares :
     #    statePrepare.normalizeData(INFOS['CAP_HIGH'], INFOS['WEIGHT_HIGH'], INFOS['VALUE_HIGH'])
-
+    '''if ppoTrainer.pretrain_need:
+        transformer_trainer = TransformerTrainer(ppoTrainer.config.generat_link_number,
+                                                 statePrepareList, ppoTrainer.actor_model, 
+                                                 device=DEVICE)
+        transformer_trainer.train(opts.instances)'''
     greedyScores = np.array(greedyScores)
     best_score = .65
     score_history = []; remain_cap_history = []
@@ -228,11 +234,13 @@ def ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
             externalObservation, _ = env.reset()
             done = False
             while not done:
-                actions, accepted_acctions, sumProbs, sumVals, sumRewards = ppoTrainer.steps(
+                internalObservatio, actions, accepted_acctions, sumProbs, sumVals, \
+                    sumRewards, steps = ppoTrainer.make_steps(
                     externalObservation, env.statePrepares, done)
                 externalObservation_, externalReward, done, info = env.step(accepted_acctions)
-                ppoTrainer.save_step (externalObservation, actions, sumProbs, 
-                                      sumVals, sumRewards, done)
+                ppoTrainer.save_step (externalObservation, internalObservatio,
+                                      actions, sumProbs, sumVals, sumRewards,
+                                      steps, done)
                 n_steps += 1
                 if n_steps % ppoTrainer.config.internal_batch == 0:
                     ppoTrainer.train_minibatch()
@@ -270,11 +278,11 @@ if __name__ == '__main__':
     
     statePrepareList = dataInitializer()
     greedyScores = greedyAlgorithm(statePrepareList)
-    env, sacTrainer = sacInitializer()
+    ''' env, sacTrainer = sacInitializer()
 
     if opts.mode == "train" :
         sac_train(env, sacTrainer, statePrepareList, greedyScores)
-    else: pass
+    else: pass'''
 
 
     env, ppoTrainer = ppoInitializer()
