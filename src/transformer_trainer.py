@@ -46,8 +46,6 @@ class TransformerTrainer:
     ):
         states, targets = self.data_process(num_instance)
         
-        print(states.size())
-        print(targets.size())
         cnt_wait=0; best=1e9; loss_list=[]; 
         
         for epoch in range(20):#self.model.config.first_train_epoc):
@@ -60,14 +58,7 @@ class TransformerTrainer:
             
             
             '''
-                rand_indx_instance = np.random.randint(low=1, high=instances_n+1,
-                                                       size=(self.model.config.first_train_batch_size,50))
-                rand_indx_knapsack = np.random.randint(low=instances_n+2, 
-                                                       high=self.model.config.max_length-1,
-                                                       size=(self.model.config.first_train_batch_size,50))
-                target = np.zeros((self.model.config.first_train_batch_size,100))                                      
-                target[:, ::2]=rand_indx_instance
-                target[:, 1::2]=rand_indx_knapsack
+                
                 start_prompt_length = np.random.randint(0, 101)
                 p_loss = []; loss = torch.tensor(0, device=self.device, dtype=torch.float)
                 for prompt_length in range(start_prompt_length, 99): 
@@ -161,41 +152,37 @@ class TransformerTrainer:
         SOD = np.array([[1.]*self.model.config.input_encode_dim])
         EOD = np.array([[2.]*self.model.config.input_encode_dim])
         decode_PAD = np.array([[0.]*self.model.config.input_decode_dim])
-        print('l')
+
         for statePrepare in self.statePrepares:
             greedy_select = GreedySelect(num_instance, statePrepare)
-            _, actss = greedy_select.test_step()
-            #for i in range (min(len(actss), self.generate_link_number)):
-            #    print(i)
-            #    statePrepare.reset()
-                #print(actss[:i])
-            #    _ = statePrepare.changeNextState(actss[:i])
-            #    greedy_select = GreedySelect(num_instance, statePrepare)
-            #    _, new_acts = greedy_select.test_step()
-                
-            stateCaps, stateWeightValues = statePrepare.getObservation()
-            state = np.append(np.append(SOD, np.append(stateWeightValues, EOD, 
-                                                       axis=0),axis=0), 
-                              np.append(stateCaps, EOD, axis=0),axis=0)
-            states = torch.cat([states, torch.tensor(state, dtype=torch.float32, 
-                                                     device=self.device).unsqueeze(dim=0)], 0)
+            _, test_acts = greedy_select.test_step()
+            for i in range(len(test_acts)-3):
+                greedy_select.reset()
+                _, _ = greedy_select.test_step(i)
+                stateCaps, stateWeightValues = greedy_select.statePrepare.getObservation()
+                state = np.append(np.append(SOD, np.append(stateWeightValues, EOD, 
+                                                           axis=0),axis=0), 
+                                  np.append(stateCaps, EOD, axis=0),axis=0)
+                states = torch.cat([states, torch.tensor(state, dtype=torch.float32, 
+                                                         device=self.device).unsqueeze(dim=0)], 0)
+                _, acts = greedy_select.test_step(i)
 
-            state_target = torch.zeros((0, self.model.config.input_decode_dim), 
-                                       dtype=torch.float32, device=self.device)
-            for index in range(min(len(actss), self.generate_link_number)):
-                inst_act = int(actss[index][0])
-                ks_act = statePrepare.getRealKsAct(int(actss[index][1]))
-                ks = torch.tensor(statePrepare.getObservedKS(ks_act),
-                                  device=self.device, dtype=torch.float32).unsqueeze(0)
-                inst = torch.tensor(statePrepare.getObservedInst(inst_act), 
-                                    device=self.device, dtype=torch.float32).unsqueeze(0)
-                state_target = torch.cat([state_target, torch.cat([inst, ks],1)], 0)
-            if state_target.size(0) < self.generate_link_number:
-                repeat_size = self.generate_link_number - state_target.size(0)
-                state_target = torch.cat([state_target, torch.tensor(np.repeat(
-                    decode_PAD, repeat_size, axis=0), device=self.device, 
-                    dtype=torch.float32)], 0)
-            targets = torch.cat([targets, state_target.unsqueeze(0)],0)
+                state_target = torch.zeros((0, self.model.config.input_decode_dim), 
+                                           dtype=torch.float32, device=self.device)
+                for index in range(min(len(acts), self.generate_link_number)):
+                    inst_act = int(acts[index][0])
+                    ks_act = statePrepare.getRealKsAct(int(acts[index][1]))
+                    ks = torch.tensor(statePrepare.getObservedKS(ks_act),
+                                      device=self.device, dtype=torch.float32).unsqueeze(0)
+                    inst = torch.tensor(statePrepare.getObservedInst(inst_act), 
+                                        device=self.device, dtype=torch.float32).unsqueeze(0)
+                    state_target = torch.cat([state_target, torch.cat([inst, ks],1)], 0)
+                if state_target.size(0) < self.generate_link_number:
+                    repeat_size = self.generate_link_number - state_target.size(0)
+                    state_target = torch.cat([state_target, torch.tensor(np.repeat(
+                        decode_PAD, repeat_size, axis=0), device=self.device, 
+                        dtype=torch.float32)], 0)
+                targets = torch.cat([targets, state_target.unsqueeze(0)],0)
         return states, targets
     
     '''def get_data (
