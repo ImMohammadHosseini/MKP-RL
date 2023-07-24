@@ -157,9 +157,10 @@ class TransformerKnapsack (nn.Module):
         #decoder_padding_mask = decoder_padding_mask.to(self.device)
         
         if mode == 'actor':
-            next_promp, next_instance, next_ks = self.forward(step, external_obs, #encoder_mask_sqr, 
+            next_promp, next_instance, next_ks = self.forward(external_obs, #encoder_mask_sqr, 
                                                               #encoder_padding_mask,
-                                                              internal_obs, nopeak_mask)#, decoder_mask, 
+                                                              internal_obs, nopeak_mask,
+                                                              step)#, decoder_mask, 
                                                               #decoder_padding_mask, 
                                                               #memory_mask)
         
@@ -170,7 +171,6 @@ class TransformerKnapsack (nn.Module):
                                 memory_mask, mode)'''
     def forward (
         self,
-        step:int,
         external_obs:torch.tensor,
         #encoder_mask:torch.tensor,
         #encoder_padding_mask: torch.tensor,
@@ -178,6 +178,7 @@ class TransformerKnapsack (nn.Module):
         decoder_mask:torch.tensor,
         #decoder_padding_mask: torch.tensor,
         #memory_mask:torch.tensor,Optional[torch.tensor] = None,
+        step: Optional[int] = None,
         mode = 'RL_train',
     ):
         external_obs = external_obs.to(torch.float32)
@@ -207,10 +208,10 @@ class TransformerKnapsack (nn.Module):
         self.instance_outer = self.instance_outer.to(self.device)
         self.knapsack_outer = self.knapsack_outer.to(self.device)
         #self.value_out = self.value_out.to(self.device)
-        pos = torch.cat([step.unsqueeze(0)+1]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
         
-        out = transformer_out.gather(1,pos).squeeze(1)
         if mode == 'RL_train':
+            pos = torch.cat([step.unsqueeze(0)+1]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
+            out = transformer_out.gather(1,pos).squeeze(1)
             return out, \
                 self.softmax(self.instance_outer(out[:,:self.config.output_dim//2])), \
                     self.softmax(self.knapsack_outer(out[:,:self.config.output_dim//2]))
