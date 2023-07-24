@@ -25,9 +25,9 @@ class GreedySelect():
         accepted_actions = np.zeros((0,2), dtype= int)
         if (self.statePrepare.is_terminated()):
             return accepted_actions
-        caps, weightValues = self.statePrepare.getObservation()
-        values = weightValues[:, -1]
-        weightSum = np.sum(weightValues[:, :-1],1)
+        self.caps, self.weightValues = self.statePrepare.getObservation()
+        values = self.weightValues[:, -1]
+        weightSum = np.sum(self.weightValues[:, :-1],1)
         greedy_inst_indx = np.flip(np.argsort(np.trim_zeros(values)/np.trim_zeros(weightSum)))[:self.greedy_num]
         if pred_num is None:
             index_range = len(greedy_inst_indx)
@@ -38,7 +38,7 @@ class GreedySelect():
             inst_idx += self.statePrepare.pad_len
             #if inst_idx >= self.statePrepare.pad_len:
             weight = self.statePrepare.getObservedInstWeight(inst_idx)
-            for ks_idx in range(caps.shape[0]):
+            for ks_idx in range(self.caps.shape[0]):
                 ks_act = self.statePrepare.getRealKsAct(ks_idx)
                 knapSack = self.statePrepare.getKnapsack(ks_act)
                 eCap = knapSack.getExpectedCap()
@@ -64,7 +64,10 @@ class GreedySelect():
         #    continue
         step_acts = np.append(step_acts, accepted_actions, 0)
         return self.score_ratio(), step_acts
-        
+    
+    def getObservation (self):
+        return self.caps, self.weightValues
+    
     def reset(self):
         self.statePrepare.reset()
 
