@@ -4,7 +4,7 @@
 """
 import torch
 import numpy as np
-from torch.optim import AdamW, SGD, RMSprop
+from torch.optim import Adam, SGD, RMSprop
 from typing import List, Optional
 #import time
 
@@ -63,14 +63,14 @@ class PPOTrainer(BaseTrainer):
         self.critic_model = self.critic_model.to(self.device)
         
         if actor_optimizer is None:
-            self.actor_optimizer = AdamW(
+            self.actor_optimizer = Adam(
                 self.actor_model.parameters(), lr=self.config.actor_lr
             )#filter(lambda p: p.requires_grad, 
         else:
             self.actor_optimizer = actor_optimizer
             
         if critic_optimizer is None:
-            self.critic_optimizer = AdamW(
+            self.critic_optimizer = Adam(
                 self.critic_model.parameters(), lr=self.config.critic_lr
             )#lambda p: p.requires_grad, 
         else:
@@ -160,7 +160,7 @@ class PPOTrainer(BaseTrainer):
             
             #prompt[index] = torch.cat([prompt[index][1:],inst], 0)
             #prompt[index] = torch.cat([prompt[index][1:],ks], 0)
-
+            
             if inst_act < statePrepares[index].pad_len or inst_act in accepted_actions[index,:,0]: 
                     rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
@@ -169,13 +169,9 @@ class PPOTrainer(BaseTrainer):
                 prompt[index] = torch.cat([prompt[index][1:], 
                                            torch.cat([inst, ks], 1)], 0)
                 step[index] += 1
-                #print(prompt[index])
-                #prompt[index] = torch.cat([prompt[index][1:], ks], 0)
-                
                 value = statePrepares[index].getObservedInstValue(inst_act)
                 rewards.append(+(value / np.sum(weight)))
                 knapSack.removeExpectedCap(weight)
-                #print('ks', ks_act, 'inst', inst_act)
                 accepted_actions[index] = np.append(accepted_actions[index][1:],
                                                     [[inst_act, ks_act]], 0)
             else:
@@ -194,12 +190,12 @@ class PPOTrainer(BaseTrainer):
         sumRewards = torch.tensor([0]*self.main_batch_size, dtype=torch.float64, 
                                    device=self.device)
         internalObservation = torch.zeros((self.main_batch_size,0,self.config.generat_link_number+1,
-                                           self.actor_model.config.output_dim),
-                                          dtype=torch.int, device=self.device)
+                                           self.actor_model.config.input_decode_dim),
+                                          device=self.device)
         
         prompt = None
         accepted_actions = np.array([[[-1]*2]*self.config.generat_link_number]*self.main_batch_size, dtype= int)
-        step = torch.tensor([0]*self.main_batch_size, dtype=torch.int64, device=self.device)
+        step = torch.tensor([1]*self.main_batch_size, dtype=torch.int64, device=self.device)
         steps = torch.zeros((self.main_batch_size,0), dtype=torch.int64, device=self.device)
         for i in range(0, self.config.generat_link_number):
             generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
@@ -209,6 +205,7 @@ class PPOTrainer(BaseTrainer):
             reward = self.reward(act, accepted_actions, step, prompt, statePrepares)
             steps = torch.cat([steps, step.unsqueeze(1)], 1)
             internalObservation = torch.cat([internalObservation, prompt.unsqueeze(1)], 1)
+            #print(internalObservation[-1])
             sumProbs += prob.squeeze()
             sumRewards += reward
             
@@ -266,12 +263,6 @@ class PPOTrainer(BaseTrainer):
         memoryRwd = torch.cat(self.memory_reward, 1)
         memoryStp = torch.cat(self.memory_steps, 1)
         memoryDon = torch.cat(self.memory_done, 1)
-        #print(memoryObs.size()) 
-        #print(memoryAct.size()) 
-        #print(memoryPrb.size())
-        #print(memoryVal.size())
-        #print(memoryRwd.size())
-        #print(memoryDon.size())
         
         for _ in range(self.config.ppo_epochs):
             batches = self.generate_batch()
