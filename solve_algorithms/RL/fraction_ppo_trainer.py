@@ -29,7 +29,7 @@ from os import path, makedirs
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 
-class PPOTrainer(BaseTrainer):
+class FractionPPOTrainer(BaseTrainer):
     r"""
     this implementation is inspired by: 
         https://github.com/lvwerra/trl/blob/main/trl/trainer/ppo_trainer.py and 
@@ -43,12 +43,10 @@ class PPOTrainer(BaseTrainer):
         main_batch_size: int,
         config: Optional[PPOConfig] = None,
         actor_model: Optional[torch.nn.Module] = None,
-        ref_model: Optional[torch.nn.Module] = None,
         critic_model: Optional[torch.nn.Module] = None,
         external_critic_model: Optional[torch.nn.Module] = None,
         device: torch.device = torch.device("cpu"),
         actor_optimizer: Optional[torch.optim.Optimizer] = None,
-        ref_optimizer: Optional[torch.optim.Optimizer] = None,
         critic_optimizer: Optional[torch.optim.Optimizer] = None,
         external_critic_optimizer: Optional[torch.optim.Optimizer] = None,
     ):
@@ -64,7 +62,6 @@ class PPOTrainer(BaseTrainer):
         self.main_batch_size = main_batch_size
         
         self.actor_model = actor_model
-        self.ref_model = ref_model
         self.critic_model = critic_model
         self.critic_model = self.critic_model.to(self.device)
         self.external_critic_model = external_critic_model
@@ -77,13 +74,6 @@ class PPOTrainer(BaseTrainer):
         else:
             self.actor_optimizer = actor_optimizer
         
-        if ref_optimizer is None:
-            self.ref_optimizer = AdamW(
-                filter(lambda p: p.requires_grad, self.ref_model.parameters()), lr=self.config.actor_lr
-            )
-        else:
-            self.ref_optimizer = ref_optimizer
-            
         if critic_optimizer is None:
             self.critic_optimizer = AdamW(
                 filter(lambda p: p.requires_grad, self.critic_model.parameters()), lr=self.config.critic_lr
@@ -98,7 +88,7 @@ class PPOTrainer(BaseTrainer):
         else:
             self.external_critic_model = external_critic_model
             
-        self.savePath = save_path +'/RL/PPOTrainer/'
+        self.savePath = save_path +'/RL/FractionPPOTrainer/'
         if path.exists(self.savePath):
             self.load_models()
             
@@ -126,29 +116,25 @@ class PPOTrainer(BaseTrainer):
     def internal_reward (
         self,
         actions: torch.tensor,
-        probs: torch.tensor,
         accepted_actions: np.ndarray,
-        accepted_probs: np.ndarray,
+        step: torch.tensor,
         prompt: torch.tensor,
-        internalObservation: torch.tensor,
         statePrepares: np.ndarray,
     ):
         rewards = []
         for index, act in enumerate(actions):
             inst_act = int(act[0])
-            ks_act = int(act[1])
+            ks_act = statePrepares[index].getRealKsAct(int(act[1]))
             knapSack = statePrepares[index].getKnapsack(ks_act)
             ks = torch.tensor(statePrepares[index].getObservedKS(ks_act),
                               device=self.device, dtype=torch.float32).unsqueeze(0)
             inst = torch.tensor(statePrepares[index].getObservedInst(inst_act), 
                                 device=self.device, dtype=torch.float32).unsqueeze(0)
             
-            internalObservation[index] = torch.cat([internalObservation[index][1:], 
-                                                    torch.cat([inst, ks], 1)], 0)
-            #internalObservation[index] = torch.cat([internalObservation[index][1:], ks], 0)
-
+            
             eCap = knapSack.getExpectedCap()
             weight = statePrepares[index].getObservedInstWeight(inst_act)
+            
             if inst_act < statePrepares[index].pad_len or inst_act in accepted_actions[index,:,0]: 
                     rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
@@ -156,17 +142,15 @@ class PPOTrainer(BaseTrainer):
             if all(eCap >= weight):
                 prompt[index] = torch.cat([prompt[index][1:], 
                                            torch.cat([inst, ks], 1)], 0)
-                #prompt[index] = torch.cat([prompt[index][1:], ks], 0)
-                
+                step[index] += 1
                 value = statePrepares[index].getObservedInstValue(inst_act)
-                rewards.append(value / np.sum(weight))
+                rewards.append(+(value / np.sum(weight)))
                 knapSack.removeExpectedCap(weight)
                 accepted_actions[index] = np.append(accepted_actions[index][1:],
                                                     [[inst_act, ks_act]], 0)
-                accepted_probs[index] = np.append(accepted_probs[index][1:], float(probs[index]))
             else:
                 rewards.append(-self.info['VALUE_LOW'])
-        return torch.tensor(rewards, device=self.device).unsqueeze(1)
+        return torch.tensor(rewards, device=self.device)
     
     def steps (
         self,
@@ -175,82 +159,65 @@ class PPOTrainer(BaseTrainer):
         done: Optional[torch.tensor] = None,
     ):
         actions = torch.zeros((self.main_batch_size,0,2), dtype=torch.int, device=self.device)
-        probs = torch.tensor([], dtype=torch.float64, device=self.device)
-        internalRewards = torch.tensor([], dtype=torch.float64, device=self.device)
+        probs = torch.zeros((self.main_batch_size,0), dtype=torch.float64, device=self.device)
+        values = torch.zeros((self.main_batch_size,0), dtype=torch.float64, device=self.device)
+        internalRewards = torch.zeros((self.main_batch_size,0), dtype=torch.float64, device=self.device)
         internalObservations = torch.zeros([self.main_batch_size, 0, 
-                                            self.config.generat_link_number, 
-                                            12],#self.actor_model.config.output_dim], 
+                                            self.config.generat_link_number+1, 
+                                            self.actor_model.config.input_decode_dim],
                                            device=self.device)
-        internalObservation = None
+        #internalObservation = None
         prompt = None
         accepted_actions = np.array([[[-1]*2]*self.config.generat_link_number]*self.main_batch_size, dtype= int)
-        accepted_probs = np.array([[None]*self.config.generat_link_number]*self.main_batch_size)
+        #accepted_probs = np.array([[None]*self.config.generat_link_number]*self.main_batch_size)
+        step = torch.tensor([1]*self.main_batch_size, dtype=torch.int64, device=self.device)
+        steps = torch.zeros((self.main_batch_size,0), dtype=torch.int64, device=self.device)
         
         for i in range(0, self.config.generat_link_number):
             generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
                 externalObservation, self.config.generat_link_number, prompt)
             act, prob = self._choose_actions(generatedInstance, generatedKnapsack)
-            if internalObservation == None: internalObservation = deepcopy(prompt)
-            internalReward = self.internal_reward(act, prob, accepted_actions, 
-                                                  accepted_probs , prompt, 
-                                                  internalObservation,
-                                                  statePrepares)
-            
-            internalObservations = torch.cat([internalObservations, internalObservation.unsqueeze(1)], 1)
+            #if internalObservation == None: internalObservation = deepcopy(prompt)
+            internalReward = self.internal_reward(act, accepted_actions, step, 
+                                                  prompt, statePrepares)
+            steps = torch.cat([steps, step.unsqueeze(1)], 1)
+            internalObservations = torch.cat([internalObservations, prompt.unsqueeze(1)], 1)
+
             actions = torch.cat([actions, act.unsqueeze(1)], 1)
             probs = torch.cat([probs, prob], 1)
             internalRewards = torch.cat([internalRewards, internalReward], 1)
-            if i % self.config.internal_batch == self.config.internal_batch-1:
-                #print(internalRewards)
-                for index in range(self.main_batch_size):
-                    eo = torch.cat([externalObservation[index].unsqueeze(0)]*(self.config.internal_batch), 0)
-                    io = internalObservations[index]
-                    values = self.critic_model(eo.to(self.device), 
-                                               io.to(self.device)).squeeze()
-                 
-                    for _ in range(self.config.ppo_epochs):
-                        dones, batches = self.generate_batch(done=done)
-                        self._train_minibatch(self.config.internal_batch, eo, 
-                                              actions[index], probs[index], 
-                                              values, internalRewards[index], 
-                                              batches, io, dones)
+            value = self.critic_model(externalObservation, prompt).squeeze(1)
+            values = torch.cat([values, value],1)
+        return internalObservations, actions, accepted_actions, probs, values, internalRewards, steps
 
-                self._update_models()
-                actions = torch.zeros((self.main_batch_size,0,2), dtype=torch.int, 
-                                      device=self.device)
-                probs = torch.tensor([], dtype=torch.float64, device=self.device)
-                internalRewards = torch.tensor([], dtype=torch.float64, 
+        '''if i % self.config.internal_batch == self.config.internal_batch-1:
+            #print(internalRewards)
+            for index in range(self.main_batch_size):
+                eo = torch.cat([externalObservation[index].unsqueeze(0)]*(self.config.internal_batch), 0)
+                io = internalObservations[index]
+                values = self.critic_model(eo.to(self.device), 
+                                           io.to(self.device)).squeeze()
+             
+                for _ in range(self.config.ppo_epochs):
+                    dones, batches = self.generate_batch(done=done)
+                    self._train_minibatch(self.config.internal_batch, eo, 
+                                          actions[index], probs[index], 
+                                          values, internalRewards[index], 
+                                          batches, io, dones)
+
+            self._update_models()
+            actions = torch.zeros((self.main_batch_size,0,2), dtype=torch.int, 
+                                  device=self.device)
+            probs = torch.tensor([], dtype=torch.float64, device=self.device)
+            internalRewards = torch.tensor([], dtype=torch.float64, 
+                                           device=self.device)
+            internalObservation = None
+            internalObservations = torch.zeros([self.main_batch_size, 0, 
+                                                self.config.generat_link_number, 
+                                                12],#self.actor_model.config.output_dim], 
                                                device=self.device)
-                internalObservation = None
-                internalObservations = torch.zeros([self.main_batch_size, 0, 
-                                                    self.config.generat_link_number, 
-                                                    12],#self.actor_model.config.output_dim], 
-                                                   device=self.device)
-        return accepted_actions, accepted_probs
+    return accepted_actions, accepted_probs'''
     
-    
-            
-    def test_step (
-        self,
-        externalObservation: torch.tensor,
-        statePrepare: ExternalStatePrepare,
-    ):
-        prompt = None
-        step_acts = np.zeros((0,2), dtype= int)
-        for i in range(0, self.config.generat_link_number):
-            stepGenerate, prompt = self.generate_step(externalObservation[0].unsqueeze(0), 2, 
-                                                      self.config.generat_link_number, prompt)
-            
-            act, prob = self._choose_actions(stepGenerate, externalObservation)
-            internalReward, accepted_action, accepted_prob = self.internal_reward(
-                act, prob, statePrepare)
-            
-            if len(accepted_action) > 0:
-                step_acts = np.append(step_acts, accepted_action, 0)
-            else:
-                prompt = prompt[:,:-2]
-        
-        return step_acts
         
     def generate_batch (
         self, 
