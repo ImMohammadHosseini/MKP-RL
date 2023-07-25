@@ -3,6 +3,7 @@
 
 """
 import torch
+import math
 import numpy as np
 from torch import nn
 from torch.nn import (
@@ -67,8 +68,8 @@ class TransformerKnapsack (nn.Module):
                                           num_decoder_layers=self.config.num_decoder_layers, 
                                           dropout=self.config.dropout).to(self.device)'''
         
-        self.instance_outer = nn.Linear(self.config.output_dim//2, self.config.inst_obs_size)
-        self.knapsack_outer = nn.Linear(self.config.output_dim//2, self.config.knapsack_obs_size)
+        self.instance_outer = nn.Linear(self.config.output_dim, self.config.inst_obs_size)
+        self.knapsack_outer = nn.Linear(self.config.output_dim, self.config.knapsack_obs_size)
         
         #self.value_out = nn.Linear(self.config.output_dim, 1)
         
@@ -81,11 +82,7 @@ class TransformerKnapsack (nn.Module):
         promp_tensor: Optional[torch.tensor] = None,   
         mode = 'actor',
     ):
-        SOD = [1]*self.config.input_encode_dim
         SOD1 = [1]*self.config.input_decode_dim
-        EOD = [2]*self.config.input_encode_dim
-        EOD1 = [2]*self.config.input_decode_dim
-        PAD = [0]*self.config.input_encode_dim
         PAD1 = [0]*self.config.input_decode_dim
 
         '''encoder_padding_mask = torch.zeros_like(external_obs[:,:,0], device=self.device)
@@ -141,11 +138,15 @@ class TransformerKnapsack (nn.Module):
         nopeak_mask = torch.cat([nopeak_mask]*internal_obs.size(0), 0)
         decoder_mask = decoder_mask.to(torch.bool)
         decoder_mask = decoder_mask & nopeak_mask'''
-        nopeak_mask = (1 - torch.triu(torch.ones(1, self.generate_link_number+1, 
-                                                 self.generate_link_number+1), diagonal=1)).bool()
-        nopeak_mask = torch.cat([nopeak_mask]*(self.config.nhead*internal_obs.size(0)), 0)
-        nopeak_mask = ~nopeak_mask
+        
+        nopeak_mask = torch.tril(torch.ones(self.config.nhead*internal_obs.size(0), 
+                                     self.generate_link_number+1, 
+                                     self.generate_link_number+1) == 1) 
+        nopeak_mask = nopeak_mask.float()
+        nopeak_mask = nopeak_mask.masked_fill(nopeak_mask == 0, float('-inf'))
+        nopeak_mask = nopeak_mask.masked_fill(nopeak_mask == 1, float(0.0))
         nopeak_mask = nopeak_mask.to(self.device)
+        
         #print(nopeak_mask.size())
         #print(nopeak_mask)
         external_obs = external_obs.to(self.device)
@@ -157,12 +158,12 @@ class TransformerKnapsack (nn.Module):
         #decoder_padding_mask = decoder_padding_mask.to(self.device)
         
         if mode == 'actor':
-            next_promp, next_instance, next_ks = self.forward(external_obs, #encoder_mask_sqr, 
-                                                              #encoder_padding_mask,
-                                                              internal_obs, nopeak_mask,
-                                                              step)#, decoder_mask, 
-                                                              #decoder_padding_mask, 
-                                                              #memory_mask)
+            next_instance, next_ks = self.forward(external_obs, #encoder_mask_sqr, 
+                                                  #encoder_padding_mask,
+                                                  internal_obs, nopeak_mask,
+                                                  step)#, decoder_mask, 
+                                                    #decoder_padding_mask, 
+                                                    #memory_mask)
         
             return next_instance.unsqueeze(1), next_ks.unsqueeze(1), promp_tensor
         '''elif mode == 'ref':
@@ -189,8 +190,8 @@ class TransformerKnapsack (nn.Module):
         self.en_embed=self.en_embed.to(self.device)
         self.de_embed=self.de_embed.to(self.device)
 
-        ext_embedding = self.en_embed(external_obs)
-        int_embedding = self.de_embed(internal_obs)
+        ext_embedding = self.en_embed(external_obs)* math.sqrt(self.config.output_dim)
+        int_embedding = self.de_embed(internal_obs)* math.sqrt(self.config.output_dim)
         self.encoder = self.encoder.to(self.device)
         self.decoder = self.decoder.to(self.device)
         
@@ -208,18 +209,21 @@ class TransformerKnapsack (nn.Module):
         self.instance_outer = self.instance_outer.to(self.device)
         self.knapsack_outer = self.knapsack_outer.to(self.device)
         #self.value_out = self.value_out.to(self.device)
-        
+        #print(transformer_out.size())
+        #print(step)
         if mode == 'RL_train':
-            pos = torch.cat([step.unsqueeze(0)+1]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
+            pos = torch.cat([step.unsqueeze(0)]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
+            #print(pos)
             out = transformer_out.gather(1,pos).squeeze(1)
-            return out, \
-                self.softmax(self.instance_outer(out[:,:self.config.output_dim//2])), \
-                    self.softmax(self.knapsack_outer(out[:,:self.config.output_dim//2]))
+            
+            
+            return self.softmax(self.instance_outer(out)), \
+                    self.softmax(self.knapsack_outer(out))
         
         
         elif mode == 'transformer_train':
-            return self.softmax(self.instance_outer(transformer_out[:,:,:self.config.output_dim//2])), \
-                    self.softmax(self.knapsack_outer(transformer_out[:,:,self.config.output_dim//2:]))
+            return self.softmax(self.instance_outer(transformer_out[:,1:])), \
+                    self.softmax(self.knapsack_outer(transformer_out[:,1:]))
         #elif mode == 'ref':
         #    return self.value_out(torch.nan_to_num(transfer_out[:,-1,:self.config.output_dim]))
     
