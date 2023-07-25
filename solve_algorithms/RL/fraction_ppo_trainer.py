@@ -91,10 +91,44 @@ class FractionPPOTrainer(BaseTrainer):
         self.savePath = save_path +'/RL/FractionPPOTrainer/'
         if path.exists(self.savePath):
             self.load_models()
+            self.pretrain_need = False
+        else: self.pretrain_need = True
             
         self.batch_actor_loss = torch.tensor(0., device=self.device)
         self.batch_critic_loss = torch.tensor(0., device=self.device)
     
+        self._reset_memory()
+    def _reset_memory (self) :
+        self.memory_observation = [] 
+        self.memory_internalObservation = []
+        self.memory_action = [] 
+        self.memory_prob = [] 
+        self.memory_val = []
+        self.memory_internalReward = []
+        self.memory_steps = []
+        self.memory_done = []
+        
+    def save_step (
+        self, 
+        externalObservation: torch.tensor,
+        internalObservations: torch.tensor,
+        actions: torch.tensor,
+        probs: torch.tensor,
+        values: torch.tensor, 
+        internalRewards: torch.tensor,
+        steps: torch.tensor,
+        done: bool,
+    ):
+        self.memory_observation.append(torch.cat([externalObservation.unsqueeze(1)]*10, 1).cpu())
+        self.memory_internalObservation.append(internalObservations.cpu())
+        self.memory_action.append(actions.data.cpu())
+        self.memory_prob.append(probs.data.cpu())
+        self.memory_val.append(values.data.cpu())
+        self.memory_internalReward.append(internalRewards.cpu())
+        self.memory_steps.append(steps.cpu())
+        self.memory_done.append(torch.tensor([[done]*self.config.generat_link_number]*self.main_batch_size))
+        
+        
     def _choose_actions (
         self, 
         generatedInstance: torch.tensor, 
@@ -152,7 +186,7 @@ class FractionPPOTrainer(BaseTrainer):
                 rewards.append(-self.info['VALUE_LOW'])
         return torch.tensor(rewards, device=self.device)
     
-    def steps (
+    def make_steps (
         self,
         externalObservation: torch.tensor,
         statePrepares: np.ndarray,
@@ -175,163 +209,116 @@ class FractionPPOTrainer(BaseTrainer):
         
         for i in range(0, self.config.generat_link_number):
             generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
-                externalObservation, self.config.generat_link_number, prompt)
+                step, externalObservation, prompt)
             act, prob = self._choose_actions(generatedInstance, generatedKnapsack)
             #if internalObservation == None: internalObservation = deepcopy(prompt)
             internalReward = self.internal_reward(act, accepted_actions, step, 
                                                   prompt, statePrepares)
+            
             steps = torch.cat([steps, step.unsqueeze(1)], 1)
             internalObservations = torch.cat([internalObservations, prompt.unsqueeze(1)], 1)
-
             actions = torch.cat([actions, act.unsqueeze(1)], 1)
             probs = torch.cat([probs, prob], 1)
-            internalRewards = torch.cat([internalRewards, internalReward], 1)
-            value = self.critic_model(externalObservation, prompt).squeeze(1)
+           
+            internalRewards = torch.cat([internalRewards, internalReward.unsqueeze(1)], 1)
+            value = self.critic_model(externalObservation, prompt)
             values = torch.cat([values, value],1)
         return internalObservations, actions, accepted_actions, probs, values, internalRewards, steps
-
-        '''if i % self.config.internal_batch == self.config.internal_batch-1:
-            #print(internalRewards)
+    
+    def train_minibatch (
+        self, 
+    ):
+        memoryObs = torch.cat(self.memory_observation, 1)
+        memoryIntObs = torch.cat(self.memory_internalObservation, 1)
+        memoryAct = torch.cat(self.memory_action, 1) 
+        memoryPrb = torch.cat(self.memory_prob, 1)
+        memoryVal = torch.cat(self.memory_val, 1)
+        memoryRwd = torch.cat(self.memory_internalReward, 1)
+        memoryStp = torch.cat(self.memory_steps, 1)
+        memoryDon = torch.cat(self.memory_done, 1)
+        
+        
+        for _ in range(self.config.ppo_epochs):
+            batches = self.generate_batch()
+            
+            batch_actor_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
+            batch_critic_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
+            count = 0
+            
             for index in range(self.main_batch_size):
-                eo = torch.cat([externalObservation[index].unsqueeze(0)]*(self.config.internal_batch), 0)
-                io = internalObservations[index]
-                values = self.critic_model(eo.to(self.device), 
-                                           io.to(self.device)).squeeze()
-             
-                for _ in range(self.config.ppo_epochs):
-                    dones, batches = self.generate_batch(done=done)
-                    self._train_minibatch(self.config.internal_batch, eo, 
-                                          actions[index], probs[index], 
-                                          values, internalRewards[index], 
-                                          batches, io, dones)
+                obs = memoryObs[index].squeeze()
+                intObs = memoryIntObs[index]
+                acts = memoryAct[index]
+                probs = memoryPrb[index].squeeze()
+                rewards = memoryRwd[index].squeeze()
+                vals = memoryVal[index].squeeze()
+                stps = memoryStp[index]
+                done = memoryDon[index].squeeze()
+                advantage = torch.zeros(self.config.internal_batch,
+                                        dtype=torch.float32, device=self.device)
+                for t in range(self.config.internal_batch-1):
+                    discount = 1
+                    a_t = 0
+                    for k in range(t, self.config.internal_batch-1):
+                        a_t += discount*(rewards[k] + self.config.gamma*vals[k+1]*\
+                                         (1-int(done[k])) - vals[k])                
+                        discount *= self.config.gamma*self.config.gae_lambda
+                    #print(a_t)
+                    advantage[t] = a_t
+            
+                for batch in batches:
+                    batchObs = obs[batch]
+                    batchIntObs = intObs[batch]
+                    batchActs = acts[batch]
+                    batchSteps = stps[batch]
+                    batchProbs = probs[batch].to(self.device)
+                    batchVals = vals[batch].to(self.device)
+                    
+                    generatedInstance, generatedKnapsack, _ = self.actor_model.generateOneStep(
+                        batchSteps, batchObs.to(self.device), batchIntObs)
+                    inst_dist = Categorical(generatedInstance.squeeze())
+                    ks_dist = Categorical(generatedKnapsack.squeeze())
+                    batchActs = batchActs.to(self.device)
+                    inst_log_probs = inst_dist.log_prob(batchActs[:,0])#.unsqueeze(1))
+                    ks_log_probs = ks_dist.log_prob(batchActs[:,1])#.unsqueeze(1))
+                    new_log_probs = inst_log_probs + ks_log_probs
+                    
+                    newVal = self.critic_model(batchObs.to(self.device), 
+                                               batchIntObs.to(self.device))
+                    
+                    prob_ratio = (new_log_probs - batchProbs).exp().to(self.device)
+                    weighted_probs = advantage[batch] * prob_ratio
+                    weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
+                                1+self.config.cliprange)*advantage[batch]
+                    
 
-            self._update_models()
-            actions = torch.zeros((self.main_batch_size,0,2), dtype=torch.int, 
-                                  device=self.device)
-            probs = torch.tensor([], dtype=torch.float64, device=self.device)
-            internalRewards = torch.tensor([], dtype=torch.float64, 
-                                           device=self.device)
-            internalObservation = None
-            internalObservations = torch.zeros([self.main_batch_size, 0, 
-                                                self.config.generat_link_number, 
-                                                12],#self.actor_model.config.output_dim], 
-                                               device=self.device)
-    return accepted_actions, accepted_probs'''
-    
-        
-    def generate_batch (
-        self, 
-        n_states: Optional[int] = None,
-        batch_size: Optional[int] = None,
-        done: Optional[torch.tensor] = None,
-    ):
-        if batch_size == None:
-            batch_size = self.config.ppo_batch_size
-        if n_states == None:
-            n_states = self.config.internal_batch
-        batch_start = np.arange(0, n_states, batch_size)
-        indices = np.arange(n_states, dtype=np.int64)
-        np.random.shuffle(indices)
-        batches = [indices[i:i+batch_size] for i in batch_start]
-        
-        if done is None:
-            dones = torch.tensor([False]*n_states)
-        else:
-            dones = torch.tensor([done]*n_states).squeeze()
-        
-        return dones,\
-                batches
-    
-    def _train_minibatch (
-        self, 
-        n_states: int,
-        external_obs: torch.tensor,
-        actions: torch.tensor,
-        old_log_probs: torch.tensor,
-        vals: torch.tensor,
-        rewards: torch.tensor,
-        batches: List,
-        internal_obs: Optional[torch.tensor]=None,
-        dones: Optional[torch.tensor]=None,
-        mode = "internal",
-    ):
-        advantage = torch.zeros(n_states, dtype=torch.float32, device=self.device)
-        for t in range(n_states-1):
-            discount = 1
-            a_t = 0
-            for k in range(t, n_states-1):
-                a_t += discount*(int(rewards[k]) + self.config.gamma*(float(vals[k+1]))- (float(vals[k]))) # -int(dones[k])
-                discount *= self.config.gamma*self.config.gae_lambda
-            #print('advantage %.3f' % a_t, 'vals %.3f' % float(vals[t]))
-            advantage[t] = a_t
+                    actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
+                    returns = advantage[batch].unsqueeze(dim=1) + batchVals.unsqueeze(dim=1)
+                    critic_loss = (returns-newVal)**2
+                    critic_loss = critic_loss.mean()
+                    
+                    count += 1
+                    batch_actor_loss += actor_loss.data
+                    batch_critic_loss += critic_loss.data
+            actor_loss_leaf = Variable(batch_actor_loss.data/count, requires_grad=True)
+            critic_loss_leaf = Variable(batch_critic_loss.data/count, requires_grad=True)
+            
+            total_loss = actor_loss_leaf + 0.5*critic_loss_leaf
+            #print(actor_loss_leaf)
+            #print(critic_loss_leaf)
+            self.actor_optimizer.zero_grad()
+            #self.critic_optimizer.zero_grad()
 
-        for batch in batches:
-            eo = external_obs[batch]
-            if mode == "internal":
-                io = internal_obs[batch]
-            else: io = None
-            olp = old_log_probs[batch]
-            acts = actions[batch]
-            
-            generatedInstance, generatedKnapsack, _ = self.actor_model.generateOneStep(
-                eo, self.config.generat_link_number, io)
-            
-            new_inst_dist = Categorical(generatedInstance)
-            new_ks_dist = Categorical(generatedKnapsack)
-            
-            if mode == "internal":
-                critic_value = vals[batch]
-                #self.critic_model(eo.to(self.device), io.to(self.device))
-                new_log_probs = new_inst_dist.log_prob(acts[:,0]) + new_ks_dist.log_prob(acts[:,1])
-
-            else:
-                critic_value = self.external_critic_model(eo.to(self.device))
-                new_log_probs = new_inst_dist.log_prob(acts[:,0]) + new_ks_dist.log_prob(acts[:,1])
-
-            critic_value = torch.squeeze(critic_value)
-            prob_ratio = (new_log_probs.exp() / olp.exp()).to(self.device)
-            
-            weighted_probs = advantage[batch] * prob_ratio
-            weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
-                        1+self.config.cliprange)*advantage[batch]
-            
-            actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
-            returns = advantage[batch].unsqueeze(dim=1) + vals[batch]
-            critic_loss = (returns-critic_value)**2
-            critic_loss = critic_loss.mean()
-            
-            self.batch_actor_loss += actor_loss.data
-            self.batch_critic_loss += critic_loss.data
-            
-            
-    def _update_models (
-        self,
-    ):
-        actor_loss_leaf = Variable(self.batch_actor_loss.data/self.main_batch_size, 
-                                   requires_grad=True)
-        critic_loss_leaf = Variable(self.batch_critic_loss.data/self.main_batch_size,
-                                    requires_grad=True)
-        #print('al', float(actor_loss_leaf), '\ncl',float(critic_loss_leaf))
-        #total_loss = actor_loss_leaf + 0.5*critic_loss_leaf
-        #total_loss = Variable(total_loss.data, requires_grad=True)
-        
-        #self.actor_model.eval()
-        self.actor_optimizer.zero_grad()
-        self.ref_optimizer.zero_grad()
-        self.critic_optimizer.zero_grad() 
-        #if mode == "internal" else \
-        #    self.external_critic_optimizer.zero_grad()
-        #total_loss.backward()
-        actor_loss_leaf.backward()
-        self.actor_optimizer.step()
-        critic_loss_leaf.backward(retain_graph=True)
-        self.ref_optimizer.step()
-        self.critic_optimizer.step() 
-        #if mode == "internal" else \
-        #    self.external_critic_optimizer.step()
-        self.batch_actor_loss = torch.tensor(0., device=self.device)
-        self.batch_critic_loss = torch.tensor(0., device=self.device)
-    
+            #total_loss.backward()
+            actor_loss_leaf.backward()
+            self.actor_optimizer.step()
+            self.critic_optimizer.zero_grad()
+            critic_loss_leaf.backward()#retain_graph=True
+            self.critic_optimizer.step()
+                    
+        self._reset_memory()
+                    
+                    
     def external_train (
         self,
         externalObservation: torch.tensor,

@@ -37,7 +37,7 @@ class ExternalStatePrepare:
         inst_sim = cosine_similarity(instance_main_data[:len(weights)], weights, dense_output=False)
         ks_sim = cosine_similarity(ks_main_data, allCapacities, dense_output=False)
         
-        if not (np.diagonal(inst_sim) > .97).all():
+        if not (np.diagonal(inst_sim) > .9).all():
             order = [0]*len(weights)
             for _ in range(len(inst_sim)):
                 index = unravel_index(inst_sim.argmax(), inst_sim.shape)
@@ -50,7 +50,7 @@ class ExternalStatePrepare:
             self.weights = weights
             self.values = values
         
-        if not (np.diagonal(ks_sim) > .97).all():
+        if not (np.diagonal(ks_sim) > .9).all():
             order = [0]*len(allCapacities)
             for _ in range(len(ks_sim)):
                 index = unravel_index(ks_sim.argmax(), ks_sim.shape)
@@ -76,14 +76,15 @@ class ExternalStatePrepare:
         for k in self.knapsacks: k.capacities = k.getCap() / maxCap'''
         
     def reset (self) -> None:
-        #print('reset')
+        self.pad_len = 0
+        self.ks_order = None
         #shuffle = np.random.permutation(len(self.weights))
         self.remainInstanceWeights = self.weights#[shuffle]
         self.remainInstanceValues = self.values#[shuffle]
         #shuffle = np.random.permutation(len(self.knapsacks))
         for k in self.knapsacks: k.reset()
         #self.knapsacks = list(np.array(self.knapsacks)[shuffle])
-
+        
     def _setKnapsack (self, allCapacities):
         self.knapsacks = [Knapsack(i, c) for i, c in enumerate(allCapacities)]
     
@@ -92,9 +93,9 @@ class ExternalStatePrepare:
         #PAD = np.array([[0.]*self.dim])
         self.stateCaps = np.array([k.getRemainCap() \
                                    for k in self.knapsacks])
-
+            
         ks_sim = cosine_similarity(self.ks_main_data, self.stateCaps, dense_output=False)
-        if not (np.diagonal(ks_sim) > .97).all():
+        if not (np.diagonal(ks_sim) > .9).all():
             self.ks_order = [0]*len(self.stateCaps)
             for _ in range(len(ks_sim)):
                 index = unravel_index(ks_sim.argmax(), ks_sim.shape)
@@ -102,13 +103,12 @@ class ExternalStatePrepare:
                 ks_sim[:,index[1]] = 0
                 ks_sim[index[0],:] = 0
             self.stateCaps = self.stateCaps[self.ks_order]
-        
+        else :self.ks_order = None
         self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps),1)), 
                                    axis=1)
-        
         inst_sim = cosine_similarity(self.instance_main_data[:len(self.remainInstanceWeights)], 
                                      self.remainInstanceWeights, dense_output=False)
-        if not (np.diagonal(inst_sim) > .97).all():
+        if not (np.diagonal(inst_sim) > .9).all():
             order = [0]*len(self.remainInstanceWeights)
             for _ in range(len(inst_sim)):
                 index = unravel_index(inst_sim.argmax(), inst_sim.shape)
@@ -120,7 +120,7 @@ class ExternalStatePrepare:
         
         
         self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
-        #print('pad ', self.pad_len)
+        
         #print(self.remainInstanceWeights)
         if self.pad_len <= 0:
             self.pad_len = 0
@@ -184,12 +184,12 @@ class ExternalStatePrepare:
             cap = knapSack.getRemainCap()
             weight = self.getObservedInstWeight(inst_act)
             value = self.getObservedInstValue(inst_act)
-            #if not all(cap >= weight):
+            if not all(cap >= weight):
             #    print('kk',knapSack.getExpectedCap())
             #    np.set_printoptions(precision=10)
-            #    print('cap', cap)
+                print('cap', cap)
             #    np.set_printoptions(precision=10)
-            #    print('w', weight)
+                print('w', weight)
             assert all(cap >= weight)
             #if not inst_act >= self.pad_len:
             #    print('pad_len', self.pad_len)

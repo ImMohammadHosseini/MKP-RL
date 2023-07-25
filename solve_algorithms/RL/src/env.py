@@ -84,12 +84,19 @@ class KnapsackAssignmentEnv (gym.Env):
         self.no_change = 0
         for statePrepare in self.statePrepares: statePrepare.reset()
         externalObservation = self._get_obs()
-        SOD = np.array([[[1.]*self.dim]]*self.main_batch_size)
+        SOD = np.array([1.]*self.dim)
         EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
+
+        shape = externalObservation["instance_value"].shape
+        sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))
+        for index in range(self.main_batch_size):
+           sod_instance_value[index] = np.insert(externalObservation[
+               "instance_value"][index], self.statePrepares[index].pad_len, SOD, axis=0)
+
         
-        externalObservation = np.append(np.append(SOD, np.append(externalObservation[
-            "instance_value"],EOD, axis=1),axis=1), np.append(externalObservation["knapsack"], 
-                                         EOD, axis=1),axis=1)
+        externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
+                                            np.append(externalObservation["knapsack"], 
+                                             EOD, axis=1),axis=1)
         #externalObservation = np.append(externalObservation["instance_value"], 
         #                                externalObservation["knapsack"], axis=1)
         info = self._get_info()
@@ -104,7 +111,6 @@ class KnapsackAssignmentEnv (gym.Env):
         terminated = False
         for index in range(self.main_batch_size):
             invalid_action_end_index = max(np.where(step_actions[index] == -1)[0], default=-1)
-            
             #print('max ', invalid_action_end_index)
             if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
             else: self.no_change=0
@@ -112,7 +118,7 @@ class KnapsackAssignmentEnv (gym.Env):
                 step_actions[index][invalid_action_end_index+1:]))               
             terminated = terminated or self.statePrepares[index].is_terminated()
         
-        terminated = terminated or self.no_change > self.no_change_long
+        terminated = terminated or self.no_change >= self.no_change_long
         
         info = self._get_info()
 
@@ -120,12 +126,19 @@ class KnapsackAssignmentEnv (gym.Env):
             return None, externalRewards, terminated, info
         
         externalObservation = self._get_obs()
-        SOD = np.array([[[1.]*self.dim]]*self.main_batch_size)
+        SOD = np.array([1.]*self.dim)
         EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
+
+        shape = externalObservation["instance_value"].shape
+        sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))
+        for index in range(self.main_batch_size):
+           sod_instance_value[index] = np.insert(externalObservation[
+               "instance_value"][index], self.statePrepares[index].pad_len, SOD, axis=0)
+
         
-        externalObservation = np.append(np.append(SOD, np.append(externalObservation[
-            "instance_value"],EOD, axis=1),axis=1), np.append(externalObservation["knapsack"], 
-                                         EOD, axis=1),axis=1)
+        externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
+                                            np.append(externalObservation["knapsack"], 
+                                             EOD, axis=1),axis=1)
         #externalObservation = np.append(externalObservation["instance_value"], 
         #                                externalObservation["knapsack"], axis=1)
         #print(externalObservation)
