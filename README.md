@@ -34,13 +34,14 @@ Within the third dimension of the state, we introduce three tokens: SOD (start o
 
 **REWARD-FUNCTION:** Firstly, if the chosen instance is in the PAD (Partial Assignment Database) section of the external observation or if it belongs to the accepted actions from previous steps, the agent receives a reward of -(Highest_value/(5 * lowest_weight). Secondly, if the chosen instance is successfully allocated in the knapsack, the agent is rewarded with +(instance_value / sum(instance_weights)). Lastly, if the chosen instance cannot be allocated in the knapsack, the model receives a penalty of -(lowest_value).
 
+### 3-2- Actor Deep Models
+#### 1-3-2- Transformer Model
+#### 2-3-2- Encoder-Mlp Model
+
 ## :bookmark: 3-Functionality and Methodology
 
 ### 1-3-Data Format and Preprocessing part
 
-### 2-3-Transformer as Actor Model
-#### 1-2-3-Encoder-Decoder Model
-#### 2-2-3-Encoder-Mlp Model
 
 ### 3-3-RL Algorithms
 #### 1-3-3-PPO
