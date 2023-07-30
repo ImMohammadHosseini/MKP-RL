@@ -44,6 +44,7 @@ The first model is a Encoder-Decoder pytorch transformer model. In this model, e
 The second model is an Encoder-MLP model, introduced to test the functionality of the models. This model consists of a transformer Encoder and an MLP model. The external observation is passed through the Encoder, and the output of the encoder is then sent to the MLP model. The output of the MLP is divided into two parts, similar to the transformer model, and sent to two different linear models with softmax activation functions.
 
 Unlike the transformer model, in the Encoder-Transformer model, we can only take one inner step, and we must update the state (external observation) after each choice of action. The concept of internal observation becomes meaningless in this model.
+![The structure](images/fig_3.jpg)
 
 ## :bookmark: 3-Functionality and Methodology
 
