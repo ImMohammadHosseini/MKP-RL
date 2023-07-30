@@ -30,7 +30,8 @@ Within the third dimension of the state, we introduce three tokens: SOD (start o
 
 ![The structure](images/fig_1.jpg)
 
-**ACTION:**
+**ACTION:** Every action in this system consists of two parts. The first part involves selecting an instance through the instance-observation-size actions, while the second part involves choosing a knapsack through the knapsack-observation-size actions. In other words, the action serves as a connection between an instance and a knapsack in our system.
+
 **REWARD-FUNCTION:**
 ## :bookmark: 3-Functionality and Methodology
 
