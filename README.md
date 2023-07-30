@@ -3,7 +3,7 @@
 [![-----------------------------------------------------]( 
 https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/aqua.png)](https://github.com/ImMohammadHosseini/incremental-learning?tab=repositories)
 
-### :bookmark: introduction
+### :bookmark: Introduction
 
 In this GitHub repository, we present a new approach to solving the multi-dimensional multiple knapsack problem. This work stems from my master's thesis focused on resource management in cloud computing. To investigate and test my thesis, I initially conducted experiments using a simplified environment, prior to considering the complexities inherent in cloud computing resource management. The primary objective of our project is to train a transformer model using reinforcement learning algorithms, such as Proximal Policy Optimization (PPO). We have implemented two variants of PPO for this purpose.
 
@@ -13,4 +13,4 @@ The knapsack problem refers to a classic optimization problem where a set of obj
 
 While this project demonstrates great potential, :bug: there is an issue or bug that needs to be addressed. As specified in the issues section, the current problem lies in the model's training, which does not yield satisfactory performance. By sharing the issue details, I hope to collaborate with others and collectively find a solution. :rocket:
 
-
+### :bookmark: Functionality and Methodology
