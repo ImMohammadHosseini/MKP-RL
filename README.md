@@ -46,11 +46,11 @@ The second model is an Encoder-MLP model, introduced to test the functionality o
 Unlike the transformer model, in the Encoder-Transformer model, we can only take one inner step, and we must update the state (external observation) after each choice of action. The concept of internal observation becomes meaningless in this model.
 ![The structure](images/fig_3.jpg)
 
+### 4-2- RL Algorithms
+#### 1-4-2- PPO
+#### 2-4-2- Fraction-PPO
+
 ## :bookmark: 3-Functionality and Methodology
 
 ### 1-3-Data Format and Preprocessing part
 
-
-### 3-3-RL Algorithms
-#### 1-3-3-PPO
-#### 2-3-3-Fraction-PPO
