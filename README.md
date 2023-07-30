@@ -32,7 +32,8 @@ Within the third dimension of the state, we introduce three tokens: SOD (start o
 
 **ACTION:** Every action in this system consists of two parts. The first part involves selecting an instance through the instance-observation-size actions, while the second part involves choosing a knapsack through the knapsack-observation-size actions. In other words, the action serves as a connection between an instance and a knapsack in our system.
 
-**REWARD-FUNCTION:**
+**REWARD-FUNCTION:** Firstly, if the chosen instance is in the PAD (Partial Assignment Database) section of the external observation or if it belongs to the accepted actions from previous steps, the agent receives a reward of -(Highest_value/(5 * lowest_weight). Secondly, if the chosen instance is successfully allocated in the knapsack, the agent is rewarded with +(instance_value / sum(instance_weights)). Lastly, if the chosen instance cannot be allocated in the knapsack, the model receives a penalty of -(lowest_value).
+
 ## :bookmark: 3-Functionality and Methodology
 
 ### 1-3-Data Format and Preprocessing part
