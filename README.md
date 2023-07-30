@@ -13,8 +13,8 @@ The knapsack problem refers to a classic optimization problem where a set of obj
 
 While this project demonstrates great potential, :bug: there is an issue or bug that needs to be addressed. As specified in the issues section, the current problem lies in the model's training, which does not yield satisfactory performance. By sharing the issue details, I hope to collaborate with others and collectively find a solution. :rocket:
 
-## :bookmark: 2- Proposed Method
-### 1-2- PPO Background
+## :bookmark: 2- Proposed Reinforcement System
+### 1-2- RL & PPO Background
 Reinforcement learning is a type of machine learning where an agent learns to make decisions by interacting with an environment. The agent receives feedback in the form of rewards or penalties based on its actions and uses this feedback to improve its decision-making abilities over time. The goal is to find the optimal policy that maximizes the cumulative rewards obtained from the environment.
 
 Proximal Policy Optimization (PPO) is a popular algorithm used in reinforcement learning. PPO is designed to optimize the policy, which is the strategy used by the agent to make decisions. It is an on-policy method, meaning it collects data by interacting with the environment using the current policy.
