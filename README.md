@@ -28,7 +28,7 @@ PPO has gained attention due to its ability to strike a balance between sample e
 
 Within the third dimension of the state, we introduce three tokens: SOD (start of data), EOD (end of data), and PAD. SOD is represented by an n+1-dimensional vector with all dimensions filled with 1, serving as the start token. Conversely, EOD is an n+1-dimensional vector with all dimensions set to 2, functioning as the end token and separating the instance and knapsack data. In cases where the number of remaining instances in a state is less than instanceobservationsize, we incorporate PAD tokens (n+1-dimensional vector with all dimensions set to 0) before the SOD token.
 
-![The structure](images/fig1.png)
+![The structure](images/fig1.jpg)
 
 **ACTION:**
 **REWARD-FUNCTION:**
