@@ -36,8 +36,14 @@ Within the third dimension of the state, we introduce three tokens: SOD (start o
 
 ### 3-2- Actor Deep Models
 We have introduced two transformer models as reinforcement actor in our project. :heavy_check_mark: Transformer Model and :heavy_check_mark: Encoder-Mlp Model
+
 #### 1-3-2- Transformer Model
+The first model is a Encoder-Decoder pytorch transformer model. In this model, each state (or external observation) is sent as input to the encoder, and every accepted action is added to the decoder prompt as an internal observation to generate new output. The output of the decoder is divided into two parts. The first part is sent to a linear layer with a softmax activation function to determine the first part of the action (choosing an instance), while the second part is sent to another linear layer with softmax to determine the second part of the action (choosing a knapsack).
+
 #### 2-3-2- Encoder-Mlp Model
+The second model is an Encoder-MLP model, introduced to test the functionality of the models. This model consists of a transformer Encoder and an MLP model. The external observation is passed through the Encoder, and the output of the encoder is then sent to the MLP model. The output of the MLP is divided into two parts, similar to the transformer model, and sent to two different linear models with softmax activation functions.
+
+Unlike the transformer model, in the Encoder-Transformer model, we can only take one inner step, and we must update the state (external observation) after each choice of action. The concept of internal observation becomes meaningless in this model.
 
 ## :bookmark: 3-Functionality and Methodology
 
