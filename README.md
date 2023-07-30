@@ -13,14 +13,16 @@ The knapsack problem refers to a classic optimization problem where a set of obj
 
 While this project demonstrates great potential, :bug: there is an issue or bug that needs to be addressed. As specified in the issues section, the current problem lies in the model's training, which does not yield satisfactory performance. By sharing the issue details, I hope to collaborate with others and collectively find a solution. :rocket:
 
-## :bookmark: 2-Functionality and Methodology
+## :bookmark: 2-Proposed Method
 
-### 1-2-Data Format and Preprocessing part
+## :bookmark: 3-Functionality and Methodology
 
-### 2-2-Transformer as Actor Model
-#### 1-2-2-Encoder-Decoder Model
-#### 2-2-2-Encoder-Mlp Model
+### 1-3-Data Format and Preprocessing part
 
-### 3-2-RL Algorithms
-#### 1-3-2-PPO
-#### 2-3-2-Fraction-PPO
+### 2-3-Transformer as Actor Model
+#### 1-2-3-Encoder-Decoder Model
+#### 2-2-3-Encoder-Mlp Model
+
+### 3-3-RL Algorithms
+#### 1-3-3-PPO
+#### 2-3-3-Fraction-PPO
