@@ -53,7 +53,9 @@ We utilize the PPO algorithm as the foundation for our reinforcement learning fr
 In each step, the environment's state is sent to the 'make_step' method as an external observation. Within this method, the Transformer model generates links between instances and knapsacks as the actor model. If an instance is successfully allocated in a knapsack, the prompt tensor is updated. This prompt tensor serves as the target in the Transformer decoder and as the internal observation in our ppo algorithms. As our actions consist of two parts, the probability of these actions is determined by multiplying the probabilities of each part. The log probability is then calculated as the sum of the log probabilities of each part.
 
 Additionally, both algorithms have corresponding critique models, which we will also explain.
+
 ##### 1-1-4-2- PPO_Trainer
+
 ##### 2-1-4-2- Fraction_PPO_Trainer
 
 
