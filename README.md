@@ -48,6 +48,10 @@ Unlike the transformer model, in the Encoder-Transformer model, we can only take
 
 ### 4-2- RL Algorithms
 #### 1-4-2- PPO
+We utilize the PPO algorithm as the foundation for our reinforcement learning framework in the initial development phase. To enhance the capabilities of our system, we customize the PPO algorithm in two ways to incorporate the Transformer model as an actor model. These customized algorithms, named 'Fraction_PPO_Trainer' and 'PPO_Trainer,' are further explained in this section. While there are similarities between both algorithms, there are also differences.
+
+In each step, the environment's state is sent to the 'make_step' method as an external observation. Within this method, the Transformer model generates links between instances and knapsacks as the actor model. If an instance is successfully allocated in a knapsack, the prompt tensor is updated. This prompt tensor serves as the target in the Transformer decoder and as the internal observation in our ppo algorithms.
+
 #### 2-4-2- Fraction-PPO
 
 ## :bookmark: 3-Functionality and Methodology
