@@ -58,7 +58,10 @@ Additionally, both algorithms have corresponding critic models, which we will al
 
 **Fraction_PPO_Trainer:** In contrast to the "PPO_Trainer" algorithm, the "Fraction_PPO_Trainer" returns the reward and log probability for each generated link separately. Therefore, each action is treated as an individual element in the training step. Given the same external observation for a group of elements, the internal observation plays a crucial role in predicting values with critic model. Consequently, the critic model in this algorithm is an MLP model with two inputs: the external observation and the internal observation."
 
-## :bookmark: 3-Functionality and Methodology
+## :bookmark: 3- Experiment
 
-### 1-3-Data Format and Preprocessing part
+### 1-3- Data Format and Preprocessing part
+
+### 2-3 Training Process
+
 
