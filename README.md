@@ -58,8 +58,6 @@ Additionally, both algorithms have corresponding critic models, which we will al
 
 
 <img src="latex.codecogs.com/png.latex?  
-\documentclass{article}
-\usepackage{amsmath}
 \usepackage[linesnumbered,ruled]{algorithm2e}
 
 \begin{document}
