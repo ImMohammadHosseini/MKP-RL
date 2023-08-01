@@ -57,7 +57,7 @@ Additionally, both algorithms have corresponding critic models, which we will al
 **PPO_Trainer:** This algorithm considers all generated links as one step and accumulates the sum of internal rewards and probabilities in "make_step" for the training step. After the 'makestep' method, we have multiple actions but only one reward and one set of probabilities. These actions are utilized in a loop during the training step to calculate the sum of new log probabilities for the PPO algorithm. The internal observation obtained in the 'make_step' method is used to obtain new distributions in the training step. However, since there is only one reward in this algorithm, the internal observation is not utilized in the critique model. In this algorithm, the critic model is an LSTM_MLP model that takes the external observation as input to provide value critics for our Transformer model.
 
 
-<img src="https://latex.codecogs.com/gif.latex?  
+<img src="latex.codecogs.com/png.latex?  
 \documentclass{article}
 \usepackage{amsmath}
 \usepackage[linesnumbered,ruled]{algorithm2e}
