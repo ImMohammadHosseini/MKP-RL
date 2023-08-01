@@ -55,8 +55,8 @@ In each step, the environment's state is sent to the 'make_step' method as an ex
 Additionally, both algorithms have corresponding critic models, which we will also explain.
 
 **PPO_Trainer:** This algorithm considers all generated links as one step and accumulates the sum of internal rewards and probabilities in "make_step" for the training step. After the 'makestep' method, we have multiple actions but only one reward and one set of probabilities. These actions are utilized in a loop during the training step to calculate the sum of new log probabilities for the PPO algorithm. The internal observation obtained in the 'make_step' method is used to obtain new distributions in the training step. However, since there is only one reward in this algorithm, the internal observation is not utilized in the critique model. In this algorithm, the critic model is an LSTM_MLP model that takes the external observation as input to provide value critics for our Transformer model.
-![The structure](images/algorithm_1.jpg)
-![The structure](images/algorithm_2.jpg)
+![The structure](images/algorithm_1.png)
+![The structure](images/algorithm_2.png)
 **Fraction_PPO_Trainer:** In contrast to the "PPO_Trainer" algorithm, the "Fraction_PPO_Trainer" returns the reward and log probability for each generated link separately. Therefore, each action is treated as an individual element in the training step. Given the same external observation for a group of elements, the internal observation plays a crucial role in predicting values with critic model. Consequently, the critic model in this algorithm is an MLP model with two inputs: the external observation and the internal observation."
 
 ## :bookmark: 3- Experiment
