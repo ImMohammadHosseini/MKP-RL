@@ -57,7 +57,60 @@ Additionally, both algorithms have corresponding critic models, which we will al
 **PPO_Trainer:** This algorithm considers all generated links as one step and accumulates the sum of internal rewards and probabilities in "make_step" for the training step. After the 'makestep' method, we have multiple actions but only one reward and one set of probabilities. These actions are utilized in a loop during the training step to calculate the sum of new log probabilities for the PPO algorithm. The internal observation obtained in the 'make_step' method is used to obtain new distributions in the training step. However, since there is only one reward in this algorithm, the internal observation is not utilized in the critique model. In this algorithm, the critic model is an LSTM_MLP model that takes the external observation as input to provide value critics for our Transformer model.
 
 
+<img src="https://latex.codecogs.com/gif.latex?  
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage[linesnumbered,ruled]{algorithm2e}
 
+\begin{document}
+	\begin{algorithm}
+		\SetKwInOut{Input}{Input}
+		\SetKwInOut{Output}{Output}
+		
+		\underline{function ppo\_train} $(env, ppoTrainer, statePrepareList, greedyScores)$\;
+		\KwIn {Environment inheritance from gym.Env, ppoTrainer object, list of all statePrepare for every problem and greedyScores list for problems}
+		\KwData {statePrepares $\leftarrow$ np.array(statePrepareList)}
+		\KwData {State greedyScores $\leftarrow$ np.array(greedyScores)}
+		\KwData {best\_score $\leftarrow$ 0.0; n\_steps $\leftarrow$ 0}
+		\KwData {score\_history $\leftarrow$ [\ ]; remain\_cap\_history $\gets$ [\ ]}
+
+		\For{Each $i$ in $N\_TRAIN\_STEP$}
+		{
+			\KwData {batchs $\leftarrow$ ppoTrainer.generate\_batch(PROBLEMS\_NUM, MAIN\_BATCH\_SIZE)}
+
+			\For{Each $batch$ in $batchs$}
+			{
+				env.setStatePrepare(statePrepares[batch])\\
+				externalObservation, \_ $\leftarrow$ env.reset()\\
+				\KwData done $\leftarrow$ False \\
+				\While{not done}
+				{
+					\KwData {internalObservatio, actions, accepted\_acctions, sumProbs, sumVals, sumRewards, steps $\leftarrow$ ppoTrainer.make\_steps(externalObservation, env.statePrepares)}
+					\KwData {externalObservation\_, externalReward, done, info $\leftarrow$ env.step(accepted\_acctions)}
+					ppoTrainer.save\_step(externalObservation, internalObservatio, actions, sumProbs, sumVals, sumRewards, steps, done)\\
+					n\_steps $\leftarrow$ n\_steps + 1\\
+					\If {n\_steps \% ppoTrainer.config.internal\_batch == 0}
+					{
+						ppoTrainer.train\_minibatch()
+					}
+					externalObservation $\leftarrow$ externalObservation\_
+				}
+				\KwData {scores, remain\_cap\_ratios $\leftarrow$ env.final\_score()}
+				\KwData{batch\_score\_per\_grredy $\leftarrow$ mean of scores/greedyScores[batch]}
+				score\_history.append(batch\_score\_per\_grredy)\\
+				remain\_cap\_history.append(np.mean(remain\_cap\_ratios))\\
+				\KwData{avg\_score $\leftarrow$ mean of score\_history[-50:]}
+				\If {avg\_score $>$ best\_score}
+				{
+					\KwData best\_score $\leftarrow$ avg\_score
+					ppoTrainer.save\_models()
+				}
+			}
+		}
+		\caption{Training Process for PPO\_Train Algorithm}
+	\end{algorithm}
+ \end{document} 
+/>
 ![The structure](images/algorithm_1.png)
 
 ![The structure](images/algorithm_2.png)
