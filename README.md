@@ -65,7 +65,8 @@ Additionally, both algorithms have corresponding critic models, which we will al
 
 ![The structure](images/algorithm3.png)
 
-**PPO_Trainer with Encoder-MLP as actor model:**
+**PPO_Trainer with Encoder-MLP as actor model:** There are some differences between the PPO_Trainer with transformer algorithm and this algorithm. In this algorithm, the model only generates one link between instances and knapsacks. So, at every step, we receive a new external observation, and there is only one inner step. With this explanation, there is no need for internal observation. We introduced this model to test if the encoder processing works correctly in this scenario. If everything works correctly in this step, it could indicate that the training issue is with our decoder part.
+
 **Fraction_PPO_Trainer with Transformer as actor model:** In contrast to the "PPO_Trainer" algorithm, the "Fraction_PPO_Trainer" returns the reward and log probability for each generated link separately. Therefore, each action is treated as an individual element in the training step. Given the same external observation for a group of elements, the internal observation plays a crucial role in predicting values with critic model. Consequently, the critic model in this algorithm is an MLP model with two inputs: the external observation and the internal observation."
 
 ## :bookmark: 3- Experiment
