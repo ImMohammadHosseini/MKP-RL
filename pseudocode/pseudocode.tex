@@ -1,0 +1,183 @@
+\documentclass{article}
+\usepackage[a4paper,
+bindingoffset=0.2in,
+left=1in,
+right=1in,
+top=.5in,
+bottom=1in,
+footskip=.25in]{geometry}
+\usepackage{amsmath}
+\usepackage[linesnumbered,ruled]{algorithm2e}
+
+\pagenumbering{gobble} 
+
+\begin{document}
+	\begin{algorithm}
+		\SetKwInOut{Input}{Input}
+		\SetKwInOut{Output}{Output}
+		
+		\underline{function ppo\_train} $(env, ppoTrainer, statePrepareList, greedyScores)$\;
+		\KwIn {Environment inheritance from gym.Env, ppoTrainer object, list of all statePrepare for every problem and greedyScores list for problems}
+		\KwData {statePrepares $\leftarrow$ np.array(statePrepareList)}
+		\KwData {State greedyScores $\leftarrow$ np.array(greedyScores)}
+		\KwData {best\_score $\leftarrow$ 0.0; n\_steps $\leftarrow$ 0}
+		\KwData {score\_history $\leftarrow$ [\ ]; remain\_cap\_history $\gets$ [\ ]}
+
+		\For{Each $i$ in $N\_TRAIN\_STEP$}
+		{
+			\KwData {batchs $\leftarrow$ ppoTrainer.generate\_batch(PROBLEMS\_NUM, MAIN\_BATCH\_SIZE)}
+
+			\For{Each $batch$ in $batchs$}
+			{
+				env.setStatePrepare(statePrepares[batch])\\
+				externalObservation, \_ $\leftarrow$ env.reset()\\
+				\KwData done $\leftarrow$ False \\
+				\While{not done}
+				{
+					\KwData {internalObservatio, actions, accepted\_acctions, sumProbs, sumVals, sumRewards, steps $\leftarrow$ ppoTrainer.make\_steps(externalObservation, env.statePrepares)}
+					\KwData {externalObservation\_, externalReward, done, info $\leftarrow$ env.step(accepted\_acctions)}
+					ppoTrainer.save\_step(externalObservation, internalObservatio, actions, sumProbs, sumVals, sumRewards, steps, done)\\
+					n\_steps $\leftarrow$ n\_steps + 1\\
+					\If {n\_steps \% ppoTrainer.config.internal\_batch == 0}
+					{
+						ppoTrainer.train\_minibatch()
+					}
+					externalObservation $\leftarrow$ externalObservation\_
+				}
+				\KwData {scores, remain\_cap\_ratios $\leftarrow$ env.final\_score()}
+				\KwData{batch\_score\_per\_grredy $\leftarrow$ mean of scores/greedyScores[batch]}
+				score\_history.append(batch\_score\_per\_grredy)\\
+				remain\_cap\_history.append(np.mean(remain\_cap\_ratios))\\
+				\KwData{avg\_score $\leftarrow$ mean of score\_history[-50:]}
+				\If {avg\_score $>$ best\_score}
+				{
+					\KwData best\_score $\leftarrow$ avg\_score
+					ppoTrainer.save\_models()
+				}
+			}
+		}
+		\caption{Training Process for PPO\_Train Algorithm}
+	\end{algorithm}
+	
+	\begin{algorithm}
+		\SetKwInOut{Input}{Input}
+		\SetKwInOut{Output}{Output}
+		
+		\underline{function make\_step} $(externalObservation, statePrepares)$\;
+		\KwIn {externalObservation, batch of statePrepares}
+		\KwOut {internalObservation, actions, accepted\_actions, sumProbs, values, sumRewards, steps}
+		
+		\KwData {actions $\leftarrow$ zero tensor with shape of $([MAIN\_BATCH\_SIZE,0,2])$}
+		\KwData {sumLogProbs $\leftarrow$ zero tensor with shape of $([MAIN\_BATCH\_SIZE])$}
+		\KwData {sumRewards $\leftarrow$zero tensor with shape of $([MAIN\_BATCH\_SIZE])$}
+		\KwData {internalObservation $\leftarrow$ zero tensor with shape of $([MAIN\_BATCH\_SIZE,0,generat\_link\_number+1,input\_decode\_dim])$}
+		\KwData {step $\leftarrow$ tensor of $([1]\*MAIN\_BATCH\_SIZE)$} \KwData {steps $\leftarrow$ zero tensor with shape of$((MAIN\_BATCH\_SIZE,0))$}
+		\KwData {prompt $\leftarrow$ None}
+		\KwData {accepted\_actions $\leftarrow$ numpy array of $([[[-1]\*2]\*generat\_link\_number]\*MAIN\_BATCH\_SIZE$}
+		
+		\For{Each $i$ in $generat\_link\_number$}
+		{
+			generatedInstance, generatedKnapsack, prompt $\leftarrow$ actor\_model.generateOneStep(step, externalObservation, prompt)\\
+			\KwResult {updated prompt if prompt == None and get new distributions as generatedInstance, generatedKnapsack}
+			act, log\_prob $\leftarrow$ \_choose\_actions(generatedInstance, generatedKnapsack)\\
+			\KwResult {get tensor of act as $([inst_act,ks_act])$ and log\_pro as summation of instance log prob with knapsack log prob}
+			actions $\leftarrow$ concatenate of actions and  act\\
+			reward $\leftarrow$ reward(act, accepted\_actions, step, prompt, statePrepares)\\
+			\KwResult {get internalReward and if instance is allocated in the knapsack update accepted\_actions, step, prompt}
+			steps $\leftarrow$ concatenate of steps, step to trac of step in actor model\\
+			internalObservation $\leftarrow$ concatenate of internalObservation, prompt\\
+			sumProbs $\leftarrow$ $sumProbs + prob$\\
+			sumRewards $\leftarrow$ $sumRewards + reward$\\
+			
+			
+		}
+		
+		\caption{make\_step method in  PPOTrainer class}
+	\end{algorithm}
+	
+	\begin{algorithm}
+		\SetKwInOut{Input}{Input}
+		\SetKwInOut{Output}{Output}
+		
+		\underline{function train\_minibatch} $()$\;
+		
+		\For{Each $\_$ in ppo\_epochs)}
+		{
+			\KwData {batchs $\leftarrow$ generate\_batch()}
+
+			\For{Each index in MAIN\_BATCH\_SIZE}
+			{
+				\KwData {obs $\leftarrow$ memoryObs[index]}
+				\KwData {intObs $\leftarrow$ memoryIntObs[index]}
+				\KwData {acts $\leftarrow$ memoryAct[index]}
+				\KwData {probs $\leftarrow$ memoryPrb[index]}
+				\KwData {rewards $\leftarrow$ memoryRwd[index]}
+				\KwData {vals $\leftarrow$ memoryVal[index]}
+				\KwData {stps $\leftarrow$ memoryStp[index]}
+				\KwData {done $\leftarrow$ memoryDon[index]}
+				
+				\KwData {advantage $\leftarrow$zero tensor with shape of $([internal\_batch])$}
+				
+				\For{Each t in internal\_batch-1}
+				{
+					\KwData {discount $\leftarrow$ 1}
+					\KwData {a\_t $\leftarrow$ 0}
+					
+					\For{Each k between t and internal\_batch-1}
+					{
+						a\_t += discount * (rewards[k] + config.gamma * vals[k+1] * (1 - int(done[k])) - vals[k])\\
+						discount *= gamma * gae\_lambda
+					}
+					
+					advantage[t] $\leftarrow$ a\_t\;
+				}
+				\For{Each batch in batches}
+				{
+					\KwData {batchObs $\leftarrow$ obs[batch]}
+					\KwData {batchIntObs $\leftarrow$ intObs[batch]}
+					\KwData {batchActs $\leftarrow$ acts[batch]}
+					\KwData {batchSteps $\leftarrow$ stps[batch]}
+					\KwData {batchProbs $\leftarrow$ probs[batch].to(device)}
+					\KwData {batchVals $\leftarrow$ vals[batch].to(device)}
+					
+					new\_log\_probs $\leftarrow$ torch.tensor([0] * config.ppo\_batch\_size, dtype=torch.float64, device=device)\;
+					
+					\For{Each i in generat\_link\_number}
+					{
+						generatedInstance, generatedKnapsack, \_ $\leftarrow$ actor\_model.generateOneStep(batchSteps[:,i], batchObs.to(device), batchIntObs[:,i])
+						\KwResult {get new distributions as generatedInstance, generatedKnapsack for external and internal observations}
+						\KwData {inst\_dist $\leftarrow$ Categorical(generatedInstance)}
+						\KwData {ks\_dist $\leftarrow$ Categorical(generatedKnapsack)}
+						\KwResult {get new torch distributions categorical objects}
+						\KwData {inst\_log\_probs $\leftarrow$ inst\_dist.log\_prob(batchActs[:,i,0])}
+						\KwData {ks\_log\_probs $\leftarrow$ ks\_dist.log\_prob(batchActs[:,i,1])}
+						\KwData {newProbs $\leftarrow$ inst\_log\_probs + ks\_log\_probs}
+						new\_log\_probs += newProbs
+					}
+					\KwData {newVal $\leftarrow$ critic\_model(batchObs)}
+					
+					\KwData {prob\_ratio $\leftarrow$ exponental of (new\_log\_probs - batchProbs)}
+					\KwData {weighted\_probs $\leftarrow$ advantage[batch] * prob\_ratio}
+					\KwData {weighted\_clipped\_probs $\leftarrow$ torch.clamp(prob\_ratio, 1 - cliprange, 1 + cliprange) * advantage[batch]}
+					
+					\KwData {actor\_loss $\leftarrow$ mean of -min between weighted\_probs and weighted\_clipped\_probs}
+					
+					\KwData {returns $\leftarrow$ advantage[batch] + batchVals}
+					\KwData {critic\_loss $\leftarrow$ mean of euclidean distance between returns and newVal}
+
+					\KwData {total\_loss $\leftarrow$ actor\_loss + 0.5 * critic\_loss}
+					
+					actor\_optimizer.zero\_grad()\\
+					critic\_optimizer.zero\_grad()\\
+					
+					total\_loss.backward()\\
+					
+					actor\_optimizer.step()\\
+					critic\_optimizer.step()\\
+				}
+			}
+		}
+		
+		\caption{train\_minibatch method in  PPOTrainer class}
+	\end{algorithm}
+\end{document} 
