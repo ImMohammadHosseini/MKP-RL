@@ -65,14 +65,14 @@ class PPOTrainer(BaseTrainer):
         if actor_optimizer is None:
             self.actor_optimizer = Adam(
                 self.actor_model.parameters(), lr=self.config.actor_lr
-            )#filter(lambda p: p.requires_grad, 
+            ) 
         else:
             self.actor_optimizer = actor_optimizer
             
         if critic_optimizer is None:
             self.critic_optimizer = Adam(
                 self.critic_model.parameters(), lr=self.config.critic_lr
-            )#lambda p: p.requires_grad, 
+            )
         else:
             self.critic_optimizer = critic_optimizer
             
@@ -158,16 +158,13 @@ class PPOTrainer(BaseTrainer):
             eCap = knapSack.getExpectedCap()
             weight = statePrepares[index].getObservedInstWeight(inst_act)
             
-            #prompt[index] = torch.cat([prompt[index][1:],inst], 0)
-            #prompt[index] = torch.cat([prompt[index][1:],ks], 0)
-            
             if inst_act < statePrepares[index].pad_len or inst_act in accepted_actions[index,:,0]: 
                     rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
             
             if all(eCap >= weight):
-                prompt[index] = torch.cat([prompt[index][1:], 
-                                           torch.cat([inst, ks], 1)], 0)
+                
+                prompt[index][step[index]+1] = torch.cat([inst, ks], 1)
                 step[index] += 1
                 value = statePrepares[index].getObservedInstValue(inst_act)
                 rewards.append(+(value / np.sum(weight)))
@@ -182,7 +179,6 @@ class PPOTrainer(BaseTrainer):
         self,
         externalObservation: torch.tensor,
         statePrepares: np.ndarray,
-        done: Optional[torch.tensor] = None,
     ):
         actions = torch.zeros((self.main_batch_size,0,2), dtype=torch.int, device=self.device)
         sumProbs = torch.tensor([0]*self.main_batch_size, dtype=torch.float64, 
@@ -195,16 +191,16 @@ class PPOTrainer(BaseTrainer):
         
         prompt = None
         accepted_actions = np.array([[[-1]*2]*self.config.generat_link_number]*self.main_batch_size, dtype= int)
-        step = torch.tensor([1]*self.main_batch_size, dtype=torch.int64, device=self.device)
+        step = torch.tensor([0]*self.main_batch_size, dtype=torch.int64, device=self.device)
         steps = torch.zeros((self.main_batch_size,0), dtype=torch.int64, device=self.device)
         for i in range(0, self.config.generat_link_number):
             generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
                 step, externalObservation, prompt)
+            internalObservation = torch.cat([internalObservation, prompt.unsqueeze(1)], 1)
             act, prob = self._choose_actions(generatedInstance, generatedKnapsack)
             actions = torch.cat([actions, act.unsqueeze(1)], 1)
-            reward = self.reward(act, accepted_actions, step, prompt, statePrepares)
             steps = torch.cat([steps, step.unsqueeze(1)], 1)
-            internalObservation = torch.cat([internalObservation, prompt.unsqueeze(1)], 1)
+            reward = self.reward(act, accepted_actions, step, prompt, statePrepares)
             #print(internalObservation[-1])
             sumProbs += prob.squeeze()
             sumRewards += reward
@@ -235,21 +231,7 @@ class PPOTrainer(BaseTrainer):
         
         return step_acts
         
-    def generate_batch (
-        self, 
-        n_states: Optional[int] = None,
-        batch_size: Optional[int] = None,
-    ):
-        if batch_size == None:
-            batch_size = self.config.ppo_batch_size
-        if n_states == None:
-            n_states = self.config.internal_batch
-        batch_start = np.arange(0, n_states, batch_size)
-        indices = np.arange(n_states, dtype=np.int64)
-        np.random.shuffle(indices)
-        batches = [indices[i:i+batch_size] for i in batch_start]
-        
-        return batches
+    
     
     def train_minibatch (
         self, 
@@ -263,23 +245,30 @@ class PPOTrainer(BaseTrainer):
         memoryRwd = torch.cat(self.memory_reward, 1)
         memoryStp = torch.cat(self.memory_steps, 1)
         memoryDon = torch.cat(self.memory_done, 1)
-        
+        #print('memoryObs',memoryObs.size())
+        #print('memoryIntObs',memoryIntObs.size())
+        #print('memoryAct',memoryAct.size())
+        #print('memoryPrb',memoryPrb.size())
+        #print('memoryVal',memoryVal.size())
+        #print('memoryRwd',memoryRwd.size())
+        #print('memoryStp',memoryStp.size())
+        #print('memoryDon',memoryDon.size())
         for _ in range(self.config.ppo_epochs):
             batches = self.generate_batch()
             
-            batch_actor_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-            batch_critic_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-            count = 0
+            #batch_actor_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
+            #batch_critic_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
+            #count = 0
             
             for index in range(self.main_batch_size):
-                obs = memoryObs[index].squeeze()
+                obs = memoryObs[index]
                 intObs = memoryIntObs[index]
                 acts = memoryAct[index]
-                probs = memoryPrb[index].squeeze()
-                rewards = memoryRwd[index].squeeze()
-                vals = memoryVal[index].squeeze()
+                probs = memoryPrb[index]
+                rewards = memoryRwd[index]
+                vals = memoryVal[index]
                 stps = memoryStp[index]
-                done = memoryDon[index].squeeze()
+                done = memoryDon[index]
                 advantage = torch.zeros(self.config.internal_batch,
                                         dtype=torch.float32, device=self.device)
                 
@@ -319,7 +308,13 @@ class PPOTrainer(BaseTrainer):
                         newProbs = inst_log_probs + ks_log_probs
                         new_log_probs += newProbs.squeeze()
                     
-                    newVal = self.critic_model(batchObs.to(self.device)).squeeze()
+                    try:
+                        newVal = self.critic_model(batchObs.to(self.device)).squeeze()
+
+                    except:
+                        print(batchObs)
+                        print(batchObs.size())
+                        newVal = self.critic_model(batchObs.to(self.device)).squeeze()
 
                     prob_ratio = (new_log_probs - batchProbs).exp().to(self.device)
                     weighted_probs = advantage[batch] * prob_ratio
@@ -336,25 +331,24 @@ class PPOTrainer(BaseTrainer):
                     critic_loss = (returns-newVal)**2
                     critic_loss = critic_loss.mean()
                     
-                    count += 1
-                    batch_actor_loss += actor_loss.data
-                    batch_critic_loss += critic_loss.data
+                    #count += 1
+                    #batch_actor_loss += actor_loss.data
+                    #batch_critic_loss += critic_loss.data
+                    actor_loss_leaf = Variable(actor_loss.data, requires_grad=True)
+                    critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
                     
-            actor_loss_leaf = Variable(batch_actor_loss.data/count, requires_grad=True)
-            critic_loss_leaf = Variable(batch_critic_loss.data/count, requires_grad=True)
-            
-            total_loss = actor_loss_leaf + 0.5*critic_loss_leaf
-            #print(actor_loss_leaf)
-            #print(critic_loss_leaf)
-            self.actor_optimizer.zero_grad()
-            #self.critic_optimizer.zero_grad()
+                    total_loss = actor_loss_leaf + 0.5*critic_loss_leaf
+                    #print(actor_loss_leaf)
+                    #print(critic_loss_leaf)
+                    self.actor_optimizer.zero_grad()
+                    self.critic_optimizer.zero_grad()
 
-            #total_loss.backward()
-            actor_loss_leaf.backward()
-            self.actor_optimizer.step()
-            self.critic_optimizer.zero_grad()
-            critic_loss_leaf.backward()#retain_graph=True
-            self.critic_optimizer.step()
+                    total_loss.backward()
+                    #actor_loss_leaf.backward()
+                    self.actor_optimizer.step()
+                    #self.critic_optimizer.zero_grad()
+                    #critic_loss_leaf.backward()#retain_graph=True
+                    self.critic_optimizer.step()
                     
         self._reset_memory()
     
