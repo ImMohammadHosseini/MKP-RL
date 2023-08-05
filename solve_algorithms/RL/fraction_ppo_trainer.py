@@ -8,16 +8,6 @@ from torch.optim import AdamW
 from typing import List, Optional
 import time
 
-
-from .src.core import (
-    set_seed, 
-    masked_mean,
-    masked_var,
-    masked_whiten,
-    clip_by_value,
-    entropy_from_logits,
-    flatten_dict,
-)
 from torch.distributions.categorical import Categorical
 from src.data_structure.state_prepare import ExternalStatePrepare
 from copy import deepcopy
@@ -26,8 +16,7 @@ from torch.autograd import Variable
 from .src.base_trainer import BaseTrainer
 from configs.ppo_configs import PPOConfig
 from os import path, makedirs
-from torchrl.objectives import ClipPPOLoss
-from torchrl.objectives.value import GAE
+
 
 class FractionPPOTrainer(BaseTrainer):
     r"""
@@ -174,8 +163,7 @@ class FractionPPOTrainer(BaseTrainer):
                     continue
             
             if all(eCap >= weight):
-                prompt[index] = torch.cat([prompt[index][1:], 
-                                           torch.cat([inst, ks], 1)], 0)
+                prompt[index][step[index]+1] = torch.cat([inst, ks], 1)
                 step[index] += 1
                 value = statePrepares[index].getObservedInstValue(inst_act)
                 rewards.append(+(value / np.sum(weight)))
@@ -190,7 +178,6 @@ class FractionPPOTrainer(BaseTrainer):
         self,
         externalObservation: torch.tensor,
         statePrepares: np.ndarray,
-        done: Optional[torch.tensor] = None,
     ):
         actions = torch.zeros((self.main_batch_size,0,2), dtype=torch.int, device=self.device)
         probs = torch.zeros((self.main_batch_size,0), dtype=torch.float64, device=self.device)
@@ -204,25 +191,25 @@ class FractionPPOTrainer(BaseTrainer):
         prompt = None
         accepted_actions = np.array([[[-1]*2]*self.config.generat_link_number]*self.main_batch_size, dtype= int)
         #accepted_probs = np.array([[None]*self.config.generat_link_number]*self.main_batch_size)
-        step = torch.tensor([1]*self.main_batch_size, dtype=torch.int64, device=self.device)
+        step = torch.tensor([0]*self.main_batch_size, dtype=torch.int64, device=self.device)
         steps = torch.zeros((self.main_batch_size,0), dtype=torch.int64, device=self.device)
         
         for i in range(0, self.config.generat_link_number):
             generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
                 step, externalObservation, prompt)
             act, prob = self._choose_actions(generatedInstance, generatedKnapsack)
-            #if internalObservation == None: internalObservation = deepcopy(prompt)
+            steps = torch.cat([steps, step.unsqueeze(1)], 1)
+            internalObservations = torch.cat([internalObservations, prompt.unsqueeze(1)], 1)
+            value = self.critic_model(externalObservation, prompt)
+            values = torch.cat([values, value],1)
             internalReward = self.internal_reward(act, accepted_actions, step, 
                                                   prompt, statePrepares)
             
-            steps = torch.cat([steps, step.unsqueeze(1)], 1)
-            internalObservations = torch.cat([internalObservations, prompt.unsqueeze(1)], 1)
             actions = torch.cat([actions, act.unsqueeze(1)], 1)
             probs = torch.cat([probs, prob], 1)
            
             internalRewards = torch.cat([internalRewards, internalReward.unsqueeze(1)], 1)
-            value = self.critic_model(externalObservation, prompt)
-            values = torch.cat([values, value],1)
+            
         return internalObservations, actions, accepted_actions, probs, values, internalRewards, steps
     
     def train_minibatch (
@@ -241,9 +228,10 @@ class FractionPPOTrainer(BaseTrainer):
         for _ in range(self.config.ppo_epochs):
             batches = self.generate_batch()
             
-            batch_actor_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-            batch_critic_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-            count = 0
+            #batch_actor_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
+            #batch_critic_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
+            #batch_entropy_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
+            #count = 0
             
             for index in range(self.main_batch_size):
                 obs = memoryObs[index].squeeze()
@@ -278,6 +266,7 @@ class FractionPPOTrainer(BaseTrainer):
                         batchSteps, batchObs.to(self.device), batchIntObs)
                     inst_dist = Categorical(generatedInstance.squeeze())
                     ks_dist = Categorical(generatedKnapsack.squeeze())
+                    entropy_loss = inst_dist.entropy() + ks_dist.entropy()
                     batchActs = batchActs.to(self.device)
                     inst_log_probs = inst_dist.log_prob(batchActs[:,0])#.unsqueeze(1))
                     ks_log_probs = ks_dist.log_prob(batchActs[:,1])#.unsqueeze(1))
@@ -295,26 +284,32 @@ class FractionPPOTrainer(BaseTrainer):
                     actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
                     returns = advantage[batch].unsqueeze(dim=1) + batchVals.unsqueeze(dim=1)
                     critic_loss = (returns-newVal)**2
-                    critic_loss = critic_loss.mean()
-                    
-                    count += 1
-                    batch_actor_loss += actor_loss.data
-                    batch_critic_loss += critic_loss.data
-            actor_loss_leaf = Variable(batch_actor_loss.data/count, requires_grad=True)
-            critic_loss_leaf = Variable(batch_critic_loss.data/count, requires_grad=True)
-            
-            total_loss = actor_loss_leaf + 0.5*critic_loss_leaf
-            #print(actor_loss_leaf)
-            #print(critic_loss_leaf)
-            self.actor_optimizer.zero_grad()
-            #self.critic_optimizer.zero_grad()
+                    critic_loss = torch.mean(critic_loss)
+                    entropy_loss = -torch.mean(entropy_loss)
 
-            #total_loss.backward()
-            actor_loss_leaf.backward()
-            self.actor_optimizer.step()
-            self.critic_optimizer.zero_grad()
-            critic_loss_leaf.backward()#retain_graph=True
-            self.critic_optimizer.step()
+                    #count = 1
+                    #batch_actor_loss += actor_loss.data
+                    #batch_critic_loss += critic_loss.data
+                    #batch_entropy_loss += torch.mean(entropy_loss)
+                    #TODO check train process
+                    actor_loss_leaf = Variable(actor_loss.data, requires_grad=True)
+                    critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
+                    entropy_loss_leaf = Variable(entropy_loss.data, requires_grad=True)
+
+                    total_loss = actor_loss_leaf + 0.5*critic_loss_leaf + 0.1*entropy_loss_leaf
+                    #print(actor_loss_leaf)
+                    #print(critic_loss_leaf)
+                    self.actor_optimizer.zero_grad()
+                    self.critic_optimizer.zero_grad()
+
+                    #self.critic_optimizer.zero_grad()
+
+                    total_loss.backward()
+                    #actor_loss_leaf.backward()
+                    self.actor_optimizer.step()
+                    #self.critic_optimizer.zero_grad()
+                    #critic_loss_leaf.backward()#retain_graph=True
+                    self.critic_optimizer.step()
                     
         self._reset_memory()
                     

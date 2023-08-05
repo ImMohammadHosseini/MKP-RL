@@ -61,17 +61,10 @@ class TransformerKnapsack (nn.Module):
         self.decoder = TransformerDecoder(
             decoder_layers, self.config.num_decoder_layers
         )
-        '''self.transformer = nn.Transformer(d_model=self.config.output_dim, 
-                                          nhead=self.config.nhead, 
-                                          dim_feedforward=self.config.d_hid,
-                                          num_encoder_layers=self.config.num_encoder_layers, 
-                                          num_decoder_layers=self.config.num_decoder_layers, 
-                                          dropout=self.config.dropout).to(self.device)'''
         
-        self.instance_outer = nn.Linear(self.config.output_dim, self.config.inst_obs_size)
-        self.knapsack_outer = nn.Linear(self.config.output_dim, self.config.knapsack_obs_size)
+        self.instance_outer = nn.Linear(self.config.output_dim//2, self.config.inst_obs_size)
+        self.knapsack_outer = nn.Linear(self.config.output_dim//2, self.config.knapsack_obs_size)
         
-        #self.value_out = nn.Linear(self.config.output_dim, 1)
         
         self.softmax = nn.Softmax(dim=1)
     
@@ -85,85 +78,50 @@ class TransformerKnapsack (nn.Module):
         SOD1 = [1]*self.config.input_decode_dim
         PAD1 = [0]*self.config.input_decode_dim
 
-        '''encoder_padding_mask = torch.zeros_like(external_obs[:,:,0], device=self.device)
-        encoder_padding_mask[torch.all(external_obs == torch.tensor(PAD, device=self.device), 
-                                       dim=2)] = 1
         
-        encoder_mask = torch.zeros_like(external_obs[:,:,0], device=self.device)
-        encoder_mask[torch.all(external_obs == torch.tensor(SOD, device=self.device), 
-                               dim=2)] = 1
-        encoder_mask[torch.all(external_obs == torch.tensor(EOD, device=self.device), 
-                               dim=2)] = 1
-        encoder_mask = torch.cat([encoder_mask]*self.config.nhead , 0)'''
-
         if promp_tensor == None:
-            start_tokens = [[SOD1]]*external_obs.size(0)#[[SOD1]]*external_obs.size(0)
-            #nopeak_mask = np.ones((self.config.nhead, generat_link_number, 
-            #                       generat_link_number))
-            #nopeak_mask[:,:,-1]=0
+            start_tokens = [[SOD1]]*external_obs.size(0)
             
         else: 
             start_tokens = promp_tensor.tolist()
-            #nopeak_mask = np.ones((self.config.nhead, generat_link_number, 
-            #                       generat_link_number))
+        
         promp_tensor = torch.tensor(
-            self.pad_left(
+            self.padding(
                 sequence=start_tokens,
                 final_length=
                 self.generate_link_number+1, 
                 padding_token=PAD1
                 ),
-            dtype=torch.float
+            dtype=torch.float,
+            device=self.device
         )
-        promp_tensor = promp_tensor.to(self.device)
-        #nopeak_mask = torch.from_numpy(nopeak_mask) == 1
-        internal_obs = promp_tensor#[:,-(2*generat_link_number):,:]
-        '''decoder_padding_mask = torch.zeros_like(internal_obs[:,:,0])
-        decoder_padding_mask[torch.all(internal_obs == torch.tensor(PAD1, device=self.device), 
-                                       dim=2)] = 1
-            
-        decoder_mask = torch.zeros_like(internal_obs[:,:,0])
-        decoder_mask[torch.all(internal_obs == torch.tensor(EOD1, device=self.device), 
-                               dim=2)] = 1
-        decoder_mask[torch.all(internal_obs == torch.tensor(SOD1, device=self.device), 
-                               dim=2)] = 1
-        decoder_mask = torch.cat([decoder_mask]*self.config.nhead , 0)
-        memory_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2).long(), 
-                                   encoder_mask.to(torch.device('cpu')).unsqueeze(1).long())
-        encoder_mask_sqr = torch.matmul(encoder_mask.to(torch.device('cpu')).unsqueeze(2), 
-                                        encoder_mask.to(torch.device('cpu')).unsqueeze(1))
-        decoder_mask = torch.matmul(decoder_mask.to(torch.device('cpu')).unsqueeze(2), 
-                                    decoder_mask.to(torch.device('cpu')).unsqueeze(1))
-
-        nopeak_mask = torch.cat([nopeak_mask]*internal_obs.size(0), 0)
-        decoder_mask = decoder_mask.to(torch.bool)
-        decoder_mask = decoder_mask & nopeak_mask'''
+        internal_obs = promp_tensor
         
-        nopeak_mask = torch.tril(torch.ones(self.config.nhead*internal_obs.size(0), 
-                                     self.generate_link_number+1, 
-                                     self.generate_link_number+1) == 1) 
-        nopeak_mask = nopeak_mask.float()
-        nopeak_mask = nopeak_mask.masked_fill(nopeak_mask == 0, float('-inf'))
-        nopeak_mask = nopeak_mask.masked_fill(nopeak_mask == 1, float(0.0))
-        nopeak_mask = nopeak_mask.to(self.device)
         
-        #print(nopeak_mask.size())
-        #print(nopeak_mask)
+        tgt_mask = torch.tril(torch.ones(self.config.nhead*internal_obs.size(0), 
+                                            self.generate_link_number+1,
+                                            self.generate_link_number+1) == 1) 
+        tgt_mask = tgt_mask.float() 
+        tgt_mask = tgt_mask.masked_fill(tgt_mask == 0, float('-inf'))
+        tgt_mask = tgt_mask.masked_fill(tgt_mask == 1, float(0.0))
+        tgt_mask = tgt_mask.to(self.device)
+        
+        decoder_padding_mask = torch.ones_like(internal_obs[:,:,0])
+        decoder_padding_mask[torch.all(internal_obs == torch.tensor(PAD1, 
+                                                                    device=self.device), 
+                                       dim=2)] = 0
+        decoder_padding_mask = decoder_padding_mask.float() 
+        decoder_padding_mask = decoder_padding_mask.masked_fill(decoder_padding_mask == 0, float('-inf'))
+        decoder_padding_mask = decoder_padding_mask.masked_fill(decoder_padding_mask == 1, float(0.0))
+        
         external_obs = external_obs.to(self.device)
         internal_obs = internal_obs.to(self.device)
-        #encoder_mask_sqr = encoder_mask_sqr.to(self.device)
-        #decoder_mask = decoder_mask.to(self.device)
-        #memory_mask = memory_mask.to(self.device)
-        #encoder_padding_mask = encoder_padding_mask.to(self.device)
-        #decoder_padding_mask = decoder_padding_mask.to(self.device)
         
         if mode == 'actor':
-            next_instance, next_ks = self.forward(external_obs, #encoder_mask_sqr, 
-                                                  #encoder_padding_mask,
-                                                  internal_obs, nopeak_mask,
-                                                  step)#, decoder_mask, 
-                                                    #decoder_padding_mask, 
-                                                    #memory_mask)
+            next_instance, next_ks = self.forward(external_obs,
+                                                  internal_obs, tgt_mask, 
+                                                  decoder_padding_mask,
+                                                  step)
         
             return next_instance.unsqueeze(1), next_ks.unsqueeze(1), promp_tensor
         '''elif mode == 'ref':
@@ -173,20 +131,15 @@ class TransformerKnapsack (nn.Module):
     def forward (
         self,
         external_obs:torch.tensor,
-        #encoder_mask:torch.tensor,
-        #encoder_padding_mask: torch.tensor,
         internal_obs:torch.tensor,
-        decoder_mask:torch.tensor,
-        #decoder_padding_mask: torch.tensor,
-        #memory_mask:torch.tensor,Optional[torch.tensor] = None,
+        tgt_mask:torch.tensor,
+        decoder_padding_mask:torch.tensor,
         step: Optional[int] = None,
         mode = 'RL_train',
     ):
         external_obs = external_obs.to(torch.float32)
         internal_obs = internal_obs.to(torch.float32)
-        #encoder_mask = encoder_mask.to(torch.bool)
-        decoder_mask = decoder_mask.to(torch.bool)
-        #memory_mask = memory_mask.to(torch.bool)
+        #decoder_mask = decoder_mask.to(torch.bool)
         self.en_embed=self.en_embed.to(self.device)
         self.de_embed=self.de_embed.to(self.device)
 
@@ -195,39 +148,27 @@ class TransformerKnapsack (nn.Module):
         self.encoder = self.encoder.to(self.device)
         self.decoder = self.decoder.to(self.device)
         
-        
-        encod = self.encoder(self.en_position_encode(ext_embedding))#, 
-                            # mask=encoder_mask, src_key_padding_mask=encoder_padding_mask)
-        
+        encod = self.encoder(self.en_position_encode(ext_embedding))
 
         transformer_out = self.decoder(self.de_position_encode(int_embedding), 
-                                    encod, tgt_mask=decoder_mask)#, 
-                                    #, memory_mask=memory_mask,
-                                    #tgt_key_padding_mask=decoder_padding_mask)
-        
-        #print(transfer_out.size())
+                                       encod, tgt_mask=tgt_mask, 
+                                       tgt_key_padding_mask=decoder_padding_mask)
         self.instance_outer = self.instance_outer.to(self.device)
         self.knapsack_outer = self.knapsack_outer.to(self.device)
-        #self.value_out = self.value_out.to(self.device)
-        #print(transformer_out.size())
-        #print(step)
+        
         if mode == 'RL_train':
             pos = torch.cat([step.unsqueeze(0)]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
-            #print(pos)
             out = transformer_out.gather(1,pos).squeeze(1)
             
-            
-            return self.softmax(self.instance_outer(out)), \
-                    self.softmax(self.knapsack_outer(out))
+            return self.softmax(self.instance_outer(out[:,:self.config.output_dim//2])), \
+                    self.softmax(self.knapsack_outer(out[:,self.config.output_dim//2:]))
         
         
         elif mode == 'transformer_train':
-            return self.softmax(self.instance_outer(transformer_out[:,1:])), \
-                    self.softmax(self.knapsack_outer(transformer_out[:,1:]))
-        #elif mode == 'ref':
-        #    return self.value_out(torch.nan_to_num(transfer_out[:,-1,:self.config.output_dim]))
-    
-    def pad_left(self, sequence, final_length, padding_token):
+            return self.instance_outer(transformer_out[:,1:,:self.config.output_dim//2]), \
+                    self.knapsack_outer(transformer_out[:,1:,self.config.output_dim//2:])
+        
+    def padding(self, sequence, final_length, padding_token):
         pads = [[padding_token] * (final_length - len(sequence[:][0]))] * len(sequence)
         return [sequence[i]+pads[i] for i in range (len(pads))]
     
