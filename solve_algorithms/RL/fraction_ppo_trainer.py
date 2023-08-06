@@ -117,25 +117,27 @@ class FractionPPOTrainer(BaseTrainer):
         self.memory_steps.append(steps.cpu())
         self.memory_done.append(torch.tensor([[done]*self.config.generat_link_number]*self.main_batch_size))
         
-        
     def _choose_actions (
         self, 
         generatedInstance: torch.tensor, 
         generatedKnapsack: torch.tensor, 
     ):
-        inst_dist = Categorical(generatedInstance)
-        ks_dist = Categorical(generatedKnapsack)
-        inst_act = inst_dist.sample() 
-        ks_act = ks_dist.sample()
+        acts = torch.zeros((0,2), dtype=torch.int)
+        log_probs = torch.zeros((0,1), dtype=torch.int)
+        for gi, gk in zip(generatedInstance, generatedKnapsack):
+            inst_dist = Categorical(gi)
+            ks_dist = Categorical(gk)
+            inst_act = inst_dist.sample() 
+            ks_act = ks_dist.sample()
         
-        inst_log_probs = inst_dist.log_prob(inst_act)
-        ks_log_probs = ks_dist.log_prob(ks_act)
-        acts = torch.cat([inst_act,
-                          ks_act],dim=1)
-        log_probs = inst_log_probs + ks_log_probs
-        
+            inst_log_probs = inst_dist.log_prob(inst_act)
+            ks_log_probs = ks_dist.log_prob(ks_act)
+            
+            acts = torch.cat([acts, torch.cat([inst_act, ks_act], dim=1)], dim=0)
+            log_probs = torch.cat([log_probs, inst_log_probs+ks_log_probs], dim=0)
+
         return acts, log_probs
-    
+
     def internal_reward (
         self,
         actions: torch.tensor,
@@ -146,7 +148,7 @@ class FractionPPOTrainer(BaseTrainer):
     ):
         rewards = []
         for index, act in enumerate(actions):
-            inst_act = int(act[0])
+            inst_act = int(act[0]) + statePrepares[index].pad_len
             ks_act = statePrepares[index].getRealKsAct(int(act[1]))
             knapSack = statePrepares[index].getKnapsack(ks_act)
             ks = torch.tensor(statePrepares[index].getObservedKS(ks_act),
@@ -158,15 +160,15 @@ class FractionPPOTrainer(BaseTrainer):
             eCap = knapSack.getExpectedCap()
             weight = statePrepares[index].getObservedInstWeight(inst_act)
             
-            if inst_act < statePrepares[index].pad_len or inst_act in accepted_actions[index,:,0]: 
-                    rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
+            if inst_act in accepted_actions[index,:,0]: # inst_act < statePrepares[index].pad_len or
+                    rewards.append(0)#-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
             
             if all(eCap >= weight):
                 prompt[index][step[index]+1] = torch.cat([inst, ks], 1)
                 step[index] += 1
                 value = statePrepares[index].getObservedInstValue(inst_act)
-                rewards.append(+(value / np.sum(weight)))
+                rewards.append(+(value))# / np.sum(weight)))
                 knapSack.removeExpectedCap(weight)
                 accepted_actions[index] = np.append(accepted_actions[index][1:],
                                                     [[inst_act, ks_act]], 0)
@@ -204,9 +206,8 @@ class FractionPPOTrainer(BaseTrainer):
             values = torch.cat([values, value],1)
             internalReward = self.internal_reward(act, accepted_actions, step, 
                                                   prompt, statePrepares)
-            
-            actions = torch.cat([actions, act.unsqueeze(1)], 1)
-            probs = torch.cat([probs, prob], 1)
+            actions = torch.cat([actions, act.unsqueeze(1).to(self.device)], 1)
+            probs = torch.cat([probs, prob.to(self.device)], 1)
            
             internalRewards = torch.cat([internalRewards, internalReward.unsqueeze(1)], 1)
             
@@ -264,18 +265,27 @@ class FractionPPOTrainer(BaseTrainer):
                     
                     generatedInstance, generatedKnapsack, _ = self.actor_model.generateOneStep(
                         batchSteps, batchObs.to(self.device), batchIntObs)
-                    inst_dist = Categorical(generatedInstance.squeeze())
-                    ks_dist = Categorical(generatedKnapsack.squeeze())
-                    entropy_loss = inst_dist.entropy() + ks_dist.entropy()
-                    batchActs = batchActs.to(self.device)
-                    inst_log_probs = inst_dist.log_prob(batchActs[:,0])#.unsqueeze(1))
-                    ks_log_probs = ks_dist.log_prob(batchActs[:,1])#.unsqueeze(1))
+                   
+                    #batchActs = batchActs.to(self.device)
+                    entropy_loss = torch.zeros((0,1), dtype=torch.int)
+                    inst_log_probs = torch.zeros((0,1), dtype=torch.int)
+                    ks_log_probs = torch.zeros((0,1), dtype=torch.int)
+
+                    for i, generat in enumerate(zip(generatedInstance, generatedKnapsack)):
+                        inst_dist = Categorical(generat[0])
+                        ks_dist = Categorical(generat[1])
+                        entropy_loss = torch.cat([entropy_loss, inst_dist.entropy()+ks_dist.entropy()], 0)
+                        inst_log_probs = torch.cat([inst_log_probs, inst_dist.log_prob(
+                            batchActs[i,0])], 0)
+                        ks_log_probs = torch.cat([ks_log_probs, ks_dist.log_prob(
+                            batchActs[i,1])], 0)
+
                     new_log_probs = inst_log_probs + ks_log_probs
                     
                     newVal = self.critic_model(batchObs.to(self.device), 
                                                batchIntObs.to(self.device))
                     
-                    prob_ratio = (new_log_probs - batchProbs).exp().to(self.device)
+                    prob_ratio = (new_log_probs.to(self.device) - batchProbs).exp()
                     weighted_probs = advantage[batch] * prob_ratio
                     weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
                                 1+self.config.cliprange)*advantage[batch]
