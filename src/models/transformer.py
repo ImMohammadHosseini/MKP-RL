@@ -23,16 +23,18 @@ class TransformerKnapsack (nn.Module):
         generate_link_number: int,
         device: torch.device = torch.device("cpu"),
         name = 'transformer',
+        out_mode = 'cosin_sim',
     ):
         #torch.autograd.set_detect_anomaly(True)
         super().__init__()
         self.name = name
+        self.out_mode = out_mode
         self.config = config
         self.device = device
         self.generate_link_number = generate_link_number
         
-        self.en_embed = nn.Linear(self.config.input_encode_dim, self.config.output_dim)
-        #self.de_embed = nn.Linear(self.config.input_decode_dim, self.config.output_dim)
+        self.en_embed = nn.Linear(self.config.input_encode_dim, self.config.output_dim, device=self.device)
+        self.de_embed = nn.Linear(self.config.input_decode_dim, self.config.output_dim, device=self.device)
 
         self.en_position_encode = PositionalEncoding(self.config.output_dim, 
                                                      self.config.max_length,
@@ -62,6 +64,9 @@ class TransformerKnapsack (nn.Module):
             decoder_layers, self.config.num_decoder_layers
         )
         
+        self.instance_outer = nn.Linear(self.config.output_dim//2, self.config.inst_obs_size, device=self.device)
+        self.knapsack_outer = nn.Linear(self.config.output_dim//2, self.config.knapsack_obs_size, device=self.device)
+        
         self.softmax = nn.Softmax(dim=-1)
     
     def generateOneStep (
@@ -69,7 +74,6 @@ class TransformerKnapsack (nn.Module):
         step: int,
         external_obs: torch.tensor,
         promp_tensor: Optional[torch.tensor] = None,   
-        mode = 'actor',
     ):
         SOD1 = [1]*self.config.input_decode_dim
         PAD1 = [0]*self.config.input_decode_dim
@@ -77,22 +81,20 @@ class TransformerKnapsack (nn.Module):
         
         if promp_tensor == None:
             start_tokens = [[SOD1]]*external_obs.size(0)
+            promp_tensor = torch.tensor(
+                self.padding(
+                    sequence=start_tokens,
+                    final_length=
+                    self.generate_link_number+1, 
+                    padding_token=PAD1
+                    ),
+                dtype=torch.float,
+                device=self.device
+            )
             
         else: 
-            start_tokens = promp_tensor.tolist()
-        
-        promp_tensor = torch.tensor(
-            self.padding(
-                sequence=start_tokens,
-                final_length=
-                self.generate_link_number+1, 
-                padding_token=PAD1
-                ),
-            dtype=torch.float,
-            device=self.device
-        )
+            promp_tensor = promp_tensor.to(self.device)
         internal_obs = promp_tensor
-        
         
         tgt_mask = torch.tril(torch.ones(self.config.nhead*internal_obs.size(0), 
                                             self.generate_link_number+1,
@@ -115,13 +117,13 @@ class TransformerKnapsack (nn.Module):
         external_obs = external_obs.to(self.device)
         internal_obs = internal_obs.to(self.device)
         
-        if mode == 'actor':
-            next_instance, next_ks = self.forward(external_obs,
-                                                  internal_obs, tgt_mask, 
-                                                  decoder_padding_mask,
-                                                  step)
         
-            return next_instance, next_ks, promp_tensor
+        next_instance, next_ks = self.forward(external_obs,
+                                              internal_obs, tgt_mask, 
+                                              decoder_padding_mask,
+                                              step)
+    
+        return next_instance, next_ks, promp_tensor
         
     def forward (
         self,
@@ -134,11 +136,9 @@ class TransformerKnapsack (nn.Module):
     ):
         external_obs = external_obs.to(torch.float32)
         internal_obs = internal_obs.to(torch.float32)
-        self.en_embed=self.en_embed.to(self.device)
-        #self.de_embed=self.de_embed.to(self.device)
-
+        
         ext_embedding = self.en_embed(external_obs)* math.sqrt(self.config.output_dim)
-        int_embedding = internal_obs* math.sqrt(self.config.output_dim)#self.de_embed(
+        int_embedding = self.de_embed(internal_obs)* math.sqrt(self.config.output_dim)
         self.encoder = self.encoder.to(self.device)
         self.decoder = self.decoder.to(self.device)
         
@@ -149,15 +149,21 @@ class TransformerKnapsack (nn.Module):
                                        tgt_key_padding_mask=decoder_padding_mask)
         
         if mode == 'RL_train':
-            pos = torch.cat([step.unsqueeze(0)]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
-            out = transformer_out.gather(1,pos).squeeze(1)
-            return self._make_distribution(out[:,:self.config.output_dim//2],
+            if self.out_mode == 'cosin_sim':
+                pos = torch.cat([step.unsqueeze(0)]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
+                out = transformer_out.gather(1,pos).squeeze(1)
+                return self._make_distribution(out[:,:self.config.output_dim//2],
                                                          out[:,self.config.output_dim//2:], 
                                                          external_obs)
-        
-        #elif mode == 'transformer_train':
-        #    return self.instance_outer(transformer_out[:,1:,:self.config.output_dim//2]), \
-        #            self.knapsack_outer(transformer_out[:,1:,self.config.output_dim//2:])
+            elif self.out_mode == 'lin_layer':
+                pos = torch.cat([step.unsqueeze(0)]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
+                out = transformer_out.gather(1,pos).squeeze(1)
+            
+                return self.softmax(self.instance_outer(out[:,:self.config.output_dim//2])), \
+                    self.softmax(self.knapsack_outer(out[:,self.config.output_dim//2:]))
+        elif mode == 'transformer_train':
+            return self.instance_outer(transformer_out[:,1:,:self.config.output_dim//2]), \
+                    self.knapsack_outer(transformer_out[:,1:,self.config.output_dim//2:])
     
     def _make_distribution (
         self, 
@@ -182,8 +188,8 @@ class TransformerKnapsack (nn.Module):
             ks_cosin_sim = (generatedKnapsack @ ks.T)/(np.expand_dims(
                 np.linalg.norm(generatedKnapsack),0).T @ np.expand_dims(
                     np.linalg.norm(ks, axis=1),0))
-            inst_dist.append(self.softmax(torch.nan_to_num(torch.tensor(inst_cosin_sim))).unsqueeze(0))
-            ks_dist.append(self.softmax(torch.nan_to_num(torch.tensor(ks_cosin_sim))).unsqueeze(0))
+            inst_dist.append(self.softmax(torch.nan_to_num(torch.tensor(inst_cosin_sim))))
+            ks_dist.append(self.softmax(torch.nan_to_num(torch.tensor(ks_cosin_sim))))
         
         return inst_dist, ks_dist
   
