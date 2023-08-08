@@ -119,13 +119,6 @@ class FractionSACTrainer(BaseTrainer):
         #print('save_step')
         start_placement = self._transitions_stored % self.config.buffer_size
         end_placement = start_placement + self.config.generat_link_number
-        #print(torch.cat([externalObservation]*10, 0).size())
-        #print(internalObservations.size())
-        #print(actions.size())
-        #print(rewards.size())
-        #print(new_observation.size())
-        #print(steps.size())
-        #print([done]*10)
 
         self.memory_externalObservation[start_placement:end_placement] = torch.cat(
             [externalObservation]*self.config.generat_link_number, 0).cpu().detach().numpy()
@@ -136,9 +129,11 @@ class FractionSACTrainer(BaseTrainer):
         self.memory_actions[start_placement:end_placement] = actions.squeeze(0).cpu().detach().numpy()
         self.memory_reward[start_placement:end_placement] = rewards.squeeze(0).cpu().detach().numpy()
         self.memory_step[start_placement:end_placement] = steps.squeeze(0).cpu().detach().numpy()
-        #TODO change done: when dine is true the last one is true and others are false beacause of internal observation
-        self.memory_done[start_placement:end_placement] = [done]*self.config.generat_link_number
-
+        if done == True:
+            self.memory_done[start_placement:end_placement] = [False]*(self.config.generat_link_number-1)[done]
+        else:
+            self.memory_done[start_placement:end_placement] = [done]*self.config.generat_link_number
+        
         self._transitions_stored += self.config.generat_link_number
     
     def sample_step (
