@@ -14,13 +14,14 @@ class FractionSACConfig(object):
     def __init__ (
         self,
         generat_link_number: int = 10,
-        sac_batch_size: int = 256,
-        buffer_size: int = int(1e4),
+        sac_batch_size: int = 64,
+        buffer_size: int = int(1e5),
         alpha_initial: float = 1.,
         discount_rate: float = 0.99,
         actor_lr: float = 1e-3,
         critic_lr: float = 1e-3,
         alpha_lr: float = 1e-3,
+        tau: float = 0.01,
     ):
         '''gradient_steps_per_itr,
         max_episode_length_eval=None,
@@ -49,5 +50,5 @@ class FractionSACConfig(object):
         self.actor_lr = actor_lr
         self.critic_lr = critic_lr
         self.alpha_lr = alpha_lr
-
+        self.tau = tau
         

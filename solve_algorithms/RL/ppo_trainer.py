@@ -6,28 +6,14 @@ import torch
 import numpy as np
 from torch.optim import Adam, SGD, RMSprop
 from typing import List, Optional
-#import time
 
-
-from .src.core import (
-    set_seed, 
-    masked_mean,
-    masked_var,
-    masked_whiten,
-    clip_by_value,
-    entropy_from_logits,
-    flatten_dict,
-)
 from torch.distributions.categorical import Categorical
 from src.data_structure.state_prepare import ExternalStatePrepare
-#from copy import deepcopy
 
 from torch.autograd import Variable
 from .src.base_trainer import BaseTrainer
 from configs.ppo_configs import PPOConfig
 from os import path, makedirs
-#from torchrl.objectives import ClipPPOLoss
-#from torchrl.objectives.value import GAE
 
 class PPOTrainer(BaseTrainer):
     r"""
@@ -236,7 +222,6 @@ class PPOTrainer(BaseTrainer):
     def train_minibatch (
         self, 
     ):
-        #print('h')
         memoryObs = torch.cat(self.memory_observation, 1)
         memoryIntObs = torch.cat(self.memory_internalObservation, 1)
         memoryAct = torch.cat(self.memory_action, 1) 
@@ -245,21 +230,9 @@ class PPOTrainer(BaseTrainer):
         memoryRwd = torch.cat(self.memory_reward, 1)
         memoryStp = torch.cat(self.memory_steps, 1)
         memoryDon = torch.cat(self.memory_done, 1)
-        #print('memoryObs',memoryObs.size())
-        #print('memoryIntObs',memoryIntObs.size())
-        #print('memoryAct',memoryAct.size())
-        #print('memoryPrb',memoryPrb.size())
-        #print('memoryVal',memoryVal.size())
-        #print('memoryRwd',memoryRwd.size())
-        #print('memoryStp',memoryStp.size())
-        #print('memoryDon',memoryDon.size())
+        
         for _ in range(self.config.ppo_epochs):
             batches = self.generate_batch()
-            
-            #batch_actor_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-            #batch_critic_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-            #count = 0
-            
             for index in range(self.main_batch_size):
                 obs = memoryObs[index]
                 intObs = memoryIntObs[index]
@@ -279,7 +252,6 @@ class PPOTrainer(BaseTrainer):
                         a_t += discount*(rewards[k] + self.config.gamma*vals[k+1]*\
                                          (1-int(done[k])) - vals[k])                
                         discount *= self.config.gamma*self.config.gae_lambda
-                    #print(a_t)
                     advantage[t] = a_t
             
                 for batch in batches:
@@ -288,12 +260,8 @@ class PPOTrainer(BaseTrainer):
                     batchActs = acts[batch]
                     batchSteps = stps[batch]
                     batchProbs = probs[batch].to(self.device)
-                    #batchRewards = rewards[batch]
                     batchVals = vals[batch].to(self.device)
-                    #batchDone = done[batch]
                     
-                    
-                    #prompt = None
                     new_log_probs = torch.tensor([0]*self.config.ppo_batch_size, 
                                                  dtype=torch.float64, device=self.device)
 
@@ -320,26 +288,18 @@ class PPOTrainer(BaseTrainer):
                     weighted_probs = advantage[batch] * prob_ratio
                     weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
                                 1+self.config.cliprange)*advantage[batch]
-                    #print(weighted_clipped_probs.size())
-                    #print(weighted_probs.size())
-
+                    
                     actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
                     returns = advantage[batch].unsqueeze(dim=1) + batchVals.unsqueeze(dim=1)
-                    #print('sizeeeeeee', returns.size())
-                    #print('returns', returns)
-                    #print('new_val', newVal)
+                    
                     critic_loss = (returns-newVal)**2
                     critic_loss = critic_loss.mean()
                     
-                    #count += 1
-                    #batch_actor_loss += actor_loss.data
-                    #batch_critic_loss += critic_loss.data
                     actor_loss_leaf = Variable(actor_loss.data, requires_grad=True)
                     critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
                     
                     total_loss = actor_loss_leaf + 0.5*critic_loss_leaf
-                    #print(actor_loss_leaf)
-                    #print(critic_loss_leaf)
+                    
                     self.actor_optimizer.zero_grad()
                     self.critic_optimizer.zero_grad()
 
@@ -363,11 +323,6 @@ class PPOTrainer(BaseTrainer):
         checkpoint = torch.load(file_path)
         self.critic_model.load_state_dict(checkpoint['model_state_dict'])
         self.critic_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-         
-        #file_path = self.savePath + "/" + self.external_critic_model.name + ".ckpt"
-        #checkpoint = torch.load(file_path)
-        #self.external_critic_model.load_state_dict(checkpoint['model_state_dict'])
-        #self.external_critic_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         
     def save_models (self):
         if not path.exists(self.savePath):
@@ -384,9 +339,4 @@ class PPOTrainer(BaseTrainer):
             'optimizer_state_dict': self.critic_optimizer.state_dict()}, 
             file_path)
         
-        #file_path = self.savePath + "/" + self.external_critic_model.name + ".ckpt"
-        #torch.save({
-        #    'model_state_dict': self.external_critic_model.state_dict(),
-        #    'optimizer_state_dict': self.external_critic_optimizer.state_dict()}, 
-        #    file_path)
-    
+        

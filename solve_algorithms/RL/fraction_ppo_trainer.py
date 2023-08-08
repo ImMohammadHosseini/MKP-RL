@@ -115,12 +115,16 @@ class FractionPPOTrainer(BaseTrainer):
         self.memory_val.append(values.data.cpu())
         self.memory_internalReward.append(internalRewards.cpu())
         self.memory_steps.append(steps.cpu())
-        self.memory_done.append(torch.tensor([[done]*self.config.generat_link_number]*self.main_batch_size))
+        
+        if done == True:
+            self.memory_done.append(torch.tensor([[False]*(self.config.generat_link_number-1)+[True]]*self.main_batch_size))
+        else:
+            self.memory_done.append(torch.tensor([[done]*self.config.generat_link_number]*self.main_batch_size))
         
     def _choose_actions (
         self, 
-        generatedInstance: torch.tensor, 
-        generatedKnapsack: torch.tensor, 
+        generatedInstance, 
+        generatedKnapsack, 
     ):
         acts = torch.zeros((0,2), dtype=torch.int)
         log_probs = torch.zeros((0,1), dtype=torch.int)
@@ -168,7 +172,7 @@ class FractionPPOTrainer(BaseTrainer):
                 prompt[index][step[index]+1] = torch.cat([inst, ks], 1)
                 step[index] += 1
                 value = statePrepares[index].getObservedInstValue(inst_act)
-                rewards.append(+(value))# / np.sum(weight)))
+                rewards.append(+(value / np.sum(weight)))
                 knapSack.removeExpectedCap(weight)
                 accepted_actions[index] = np.append(accepted_actions[index][1:],
                                                     [[inst_act, ks_act]], 0)
@@ -301,7 +305,6 @@ class FractionPPOTrainer(BaseTrainer):
                     #batch_actor_loss += actor_loss.data
                     #batch_critic_loss += critic_loss.data
                     #batch_entropy_loss += torch.mean(entropy_loss)
-                    #TODO check train process
                     actor_loss_leaf = Variable(actor_loss.data, requires_grad=True)
                     critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
                     entropy_loss_leaf = Variable(entropy_loss.data, requires_grad=True)

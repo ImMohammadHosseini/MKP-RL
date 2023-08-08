@@ -12,6 +12,7 @@ from tqdm import tqdm
 #from RL.src.core import LengthSampler
 from data.dataProducer import multipleKnapSackData, multiObjectiveDimentional
 from configs.ppo_configs import PPOConfig
+from configs.fraction_sac_configs import FractionSACConfig
 from configs.transformers_model_configs import TransformerKnapsackConfig
 from src.models.transformer import TransformerKnapsack
 from src.models.EncoderMLP import EncoderMLPKnapsack
@@ -25,6 +26,7 @@ import matplotlib.pyplot as plt
 
 from solve_algorithms.RL.ppo_trainer import PPOTrainer
 from solve_algorithms.RL.fraction_ppo_trainer import FractionPPOTrainer
+from solve_algorithms.RL.fraction_sac_trainer import FractionSACTrainer
 
 usage = "usage: python main.py -V <variation> -M <knapsaks> -N <instances>"
 
@@ -51,10 +53,10 @@ INFOS = {'CAP_LOW':80,
 
 KNAPSACK_OBS_SIZE = opts.kps
 INSTANCE_OBS_SIZE = opts.instances#2 * KNAPSACK_OBS_SIZE
-BATCH_SIZE = 1
+MAIN_BATCH_SIZE = 1
 NO_CHANGE_LONG = 1#*BATCH_SIZE#int(1/8*(opts.instances // INSTANCE_OBS_SIZE))
-PROBLEMS_NUM = 1*BATCH_SIZE
-N_TRAIN_STEPS = 200000
+PROBLEMS_NUM = 1*MAIN_BATCH_SIZE
+N_TRAIN_STEPS = 100000
 #NEW_PROBLEM_PER_EPISODE = 10
 N_TEST_STEPS = 10
 SAVE_PATH = 'pretrained/save_models'
@@ -116,10 +118,11 @@ def fractionPPOInitializer ():
                                 (ppoConfig.generat_link_number+1)*modelConfig.input_decode_dim)
     externalCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
     env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
-                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, BATCH_SIZE, DEVICE)
+                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE, DEVICE)
     
-    ppoTrainer = FractionPPOTrainer(INFOS, SAVE_PATH, BATCH_SIZE, ppoConfig, actorModel, 
-                                    criticModel, externalCriticModel, DEVICE)
+    ppoTrainer = FractionPPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
+                                    actorModel, criticModel, externalCriticModel,
+                                    DEVICE)
     return env, ppoTrainer
 
 def ppoInitializer ():
@@ -131,20 +134,53 @@ def ppoInitializer ():
     criticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
     
     env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
-                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, BATCH_SIZE, DEVICE)
-    ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, BATCH_SIZE, ppoConfig, actorModel, 
+                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE, DEVICE)
+    ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, actorModel, 
                             criticModel, DEVICE)
     
     return env, ppoTrainer
     
+
+def fractionSACInitializer ():
+    sacConfig = FractionSACConfig()
+    actorModelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
+                                                 opts.dim, output_dim=12)
+    actorModel = TransformerKnapsack(actorModelConfig, sacConfig.generat_link_number, DEVICE)
     
-def plot_learning_curve(x, scores, figure_file, title):#TODO delete method
+    criticModelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
+                                                 opts.dim, output_dim=32)
+    criticLocal1 = TransformerKnapsack(criticModelConfig, sacConfig.generat_link_number, 
+                                       device=DEVICE, name = 'criticLocal1', 
+                                       out_mode = 'lin_layer')
+    criticLocal2 = TransformerKnapsack(criticModelConfig, sacConfig.generat_link_number, 
+                                       device=DEVICE, name = 'criticLocal2', 
+                                       out_mode = 'lin_layer')
+    criticTarget1 = TransformerKnapsack(criticModelConfig, sacConfig.generat_link_number, 
+                                       device=DEVICE, name = 'criticTarget1', 
+                                       out_mode = 'lin_layer')
+    criticTarget2 = TransformerKnapsack(criticModelConfig, sacConfig.generat_link_number, 
+                                       device=DEVICE, name = 'criticTarget2', 
+                                       out_mode = 'lin_layer')
+    env = KnapsackAssignmentEnv(actorModelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
+                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE, 
+                                DEVICE)
+    sacTrainer = FractionSACTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, sacConfig, actorModel, 
+                            criticLocal1, criticLocal2, criticTarget1, criticTarget2, 
+                            DEVICE)
+    return env, sacTrainer
+    
+    
+                       
+def plot_learning_curve(x, scores, figure_file, title, label):#TODO delete method
     running_avg = np.zeros(len(scores))
     for i in range(len(running_avg)):
         running_avg[i] = np.mean(scores[max(0, i-50):(i+1)])
-    plt.plot(x, running_avg)
+    plt.plot(x, running_avg, 'C0', linewidth = 1, alpha = 0.5, label=label)
+    plt.plot(np.convolve(running_avg, np.ones((3000,))/3000, mode='valid'), 'C0')
     plt.title(title)
     plt.savefig(figure_file)
+    plt.show()
+
 
 def rl_test (env, ppoTrainer):
     test_score_history = []
@@ -160,21 +196,19 @@ def rl_test (env, ppoTrainer):
     avg_score = np.mean(test_score_history)
     print('avg_test_scor:', avg_score)
 
-
-
 def fraction_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
     statePrepares = np.array(statePrepareList)
     if ppoTrainer.pretrain_need:
         transformer_trainer = TransformerTrainer(ppoTrainer.config.generat_link_number,
                                                  statePrepareList, ppoTrainer.actor_model, 
                                                  device=DEVICE)
-        transformer_trainer.train(opts.instances, BATCH_SIZE)
+        transformer_trainer.train(opts.instances, MAIN_BATCH_SIZE)
     greedyScores = np.array(greedyScores)
-    best_score = .9
+    best_score = .65
     score_history = []; remain_cap_history = []
     n_steps = 0
     for i in tqdm(range(N_TRAIN_STEPS)):
-        batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, BATCH_SIZE)
+        batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, MAIN_BATCH_SIZE)
         for batch in batchs:
             env.setStatePrepare(statePrepares[batch])
 
@@ -183,7 +217,7 @@ def fraction_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
             while not done:
                 internalObservations, actions, accepted_actions, probs, values, \
                     internalRewards, steps = ppoTrainer.make_steps(
-                        externalObservation, env.statePrepares, done)
+                        externalObservation, env.statePrepares)
                 externalObservation_, externalReward, done, info = env.step(accepted_actions)
                 ppoTrainer.save_step (externalObservation, internalObservations,
                                       actions, probs, values, internalRewards,
@@ -207,14 +241,16 @@ def fraction_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
                   'time_steps', n_steps, 'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios))
     
     x = [i+1 for i in range(len(score_history))]
-    figure_file = 'plots/score_per_greedyScore.png'
+    figure_file = 'plots/fraction_ppo_score_per_greedyScore.png'
     title = 'Running average of previous 50 scores'
-    plot_learning_curve(x, score_history, figure_file, title)#TODO add visualization
+    label = 'scores'
+    plot_learning_curve(x, score_history, figure_file, title, label)#TODO add visualization
     
     x = [i+1 for i in range(len(remain_cap_history))]
-    figure_file = 'plots/remain_cap_ratio.png'
+    figure_file = 'plots/fraction_ppo_remain_cap_ratio.png'
     title = 'Running average of previous 50 remain caps'
-    plot_learning_curve(x, remain_cap_history, figure_file, title)
+    label = 'remain caps'
+    plot_learning_curve(x, remain_cap_history, figure_file, title, label)
     
 def ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
     statePrepares = np.array(statePrepareList)
@@ -222,13 +258,13 @@ def ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
         transformer_trainer = TransformerTrainer(ppoTrainer.config.generat_link_number,
                                                  statePrepareList, ppoTrainer.actor_model, 
                                                  device=DEVICE)
-        transformer_trainer.train(opts.instances, BATCH_SIZE)
+        transformer_trainer.train(opts.instances, MAIN_BATCH_SIZE)
     greedyScores = np.array(greedyScores)
     best_score = .65
     score_history = []; remain_cap_history = []
     n_steps = 0
     for i in tqdm(range(N_TRAIN_STEPS)):
-        batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, BATCH_SIZE)
+        batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, MAIN_BATCH_SIZE)
         for batch in batchs:
             env.setStatePrepare(statePrepares[batch])
 
@@ -237,7 +273,7 @@ def ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
             while not done:
                 internalObservatio, actions, accepted_acctions, sumProbs, sumVals, \
                     sumRewards, steps = ppoTrainer.make_steps(
-                    externalObservation, env.statePrepares, done)
+                    externalObservation, env.statePrepares)
                 externalObservation_, externalReward, done, info = env.step(accepted_acctions)
                 ppoTrainer.save_step (externalObservation, internalObservatio,
                                       actions, sumProbs, sumVals, sumRewards,
@@ -262,25 +298,77 @@ def ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
                   'time_steps', n_steps, 'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios))
     
     x = [i+1 for i in range(len(score_history))]
-    figure_file = 'plots/score_per_greedyScore.png'
+    figure_file = 'plots/ppo_score_per_greedyScore.png'
+    title = 'Running average of previous 50 scores'
+    label = 'scores'
+    plot_learning_curve(x, score_history, figure_file, title, label)#TODO add visualization
+    
+    x = [i+1 for i in range(len(remain_cap_history))]
+    figure_file = 'plots/ppo_remain_cap_ratio.png'
+    title = 'Running average of previous 50 remain caps'
+    label = 'remain caps'
+    plot_learning_curve(x, remain_cap_history, figure_file, title, label)
+    
+def fraction_sac_train (env, sacTrainer, statePrepareList, greedyScores):
+    statePrepares = np.array(statePrepareList)
+    greedyScores = np.array(greedyScores)
+    best_score = .8
+    score_history = []; remain_cap_history = []
+    n_steps = 0
+    for i in tqdm(range(N_TRAIN_STEPS)):
+        #batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, BATCH_SIZE)
+        batchs = [np.array([0])]
+        for batch in batchs:
+            env.setStatePrepare(statePrepares[batch])
+            
+            externalObservation, _ = env.reset()
+            done = False
+            while not done: 
+                internalObservations, actions, accepted_actions, rewards, steps = sacTrainer.steps(
+                    externalObservation, env.statePrepares, done)
+                externalObservation_, externalReward, done, info = env.step(accepted_actions)
+                sacTrainer.save_step (externalObservation, internalObservations,
+                                      actions, rewards, externalObservation_, steps, 
+                                      done)
+                sacTrainer.train()
+                externalObservation = externalObservation_
+                
+            scores, remain_cap_ratios = env.final_score()
+            batch_score_per_grredy = np.mean([s/gs for s,gs in zip(scores, greedyScores[batch])])
+
+            score_history.append(batch_score_per_grredy)
+            remain_cap_history.append(np.mean(remain_cap_ratios))
+            avg_score = np.mean(score_history[-50:])
+
+            if avg_score > best_score:
+                best_score = avg_score
+                sacTrainer.save_models()
+            print('episode', i, 'score %.3f' % batch_score_per_grredy, 'avg score %.2f' % avg_score,
+                  'time_steps', n_steps, 'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios))
+    x = [i+1 for i in range(len(score_history))]
+    figure_file = 'plots/score_per_greedyScore(sac).png'
     title = 'Running average of previous 50 scores'
     plot_learning_curve(x, score_history, figure_file, title)#TODO add visualization
     
     x = [i+1 for i in range(len(remain_cap_history))]
-    figure_file = 'plots/remain_cap_ratio.png'
+    figure_file = 'plots/remain_cap_ratio(sac).png'
     title = 'Running average of previous 50 remain caps'
     plot_learning_curve(x, remain_cap_history, figure_file, title)
     
-
+    
 if __name__ == '__main__':
     
     statePrepareList = dataInitializer()
     greedyScores = greedyAlgorithm(statePrepareList)
     
-
+    env, ppoTrainer = fractionSACInitializer()
+    fraction_sac_train(env, ppoTrainer, statePrepareList, greedyScores)
+    
     env, ppoTrainer = fractionPPOInitializer()
+    fraction_ppo_train(env, ppoTrainer, statePrepareList, greedyScores)
+    
+    
+    #env, ppoTrainer = ppoInitializer()
+    #ppo_train(env, ppoTrainer, statePrepareList, greedyScores)
 
-    if opts.mode == "train" :
-        fraction_ppo_train(env, ppoTrainer, statePrepareList, greedyScores)
-    else:
-        rl_test(env, ppoTrainer, statePrepareList)#TODO waaayyy
+    

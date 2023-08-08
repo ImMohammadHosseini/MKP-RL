@@ -79,12 +79,13 @@ class FractionSACTrainer(BaseTrainer):
             -np.log(1 / self.actor_model.config.knapsack_obs_size)
         self.log_alpha = torch.tensor(np.log(self.config.alpha_initial), requires_grad=True)
         self.alpha = self.log_alpha.to(self.device)
-        self.alpha_optimiser = AdamW([self.log_alpha], lr=self.config.alpha_lr)
+        self.alpha_optimizer = AdamW([self.log_alpha], lr=self.config.alpha_lr)
     
         self.savePath = save_path +'/RL/FractionSACTrainer/'
         if path.exists(self.savePath):
             self.load_models()
         
+        #Replay buffer
         self._transitions_stored = 0
         self.memory_externalObservation = np.zeros((self.config.buffer_size, 
                                                     self.actor_model.config.max_length,
@@ -99,7 +100,11 @@ class FractionSACTrainer(BaseTrainer):
                                                 self.actor_model.config.max_length,
                                                 self.actor_model.config.input_encode_dim))
         self.memory_done = np.zeros(self.config.buffer_size, dtype=np.bool)
-    
+        self.weights = np.zeros(self.config.buffer_size)
+        self.max_weight = 10**-2
+        self.delta = 10**-4
+        self.indices = None
+        
     def save_step (
         self, 
         externalObservation: torch.tensor, 
@@ -114,13 +119,6 @@ class FractionSACTrainer(BaseTrainer):
         #print('save_step')
         start_placement = self._transitions_stored % self.config.buffer_size
         end_placement = start_placement + self.config.generat_link_number
-        #print(torch.cat([externalObservation]*10, 0).size())
-        #print(internalObservations.size())
-        #print(actions.size())
-        #print(rewards.size())
-        #print(new_observation.size())
-        #print(steps.size())
-        #print([done]*10)
 
         self.memory_externalObservation[start_placement:end_placement] = torch.cat(
             [externalObservation]*self.config.generat_link_number, 0).cpu().detach().numpy()
@@ -131,9 +129,11 @@ class FractionSACTrainer(BaseTrainer):
         self.memory_actions[start_placement:end_placement] = actions.squeeze(0).cpu().detach().numpy()
         self.memory_reward[start_placement:end_placement] = rewards.squeeze(0).cpu().detach().numpy()
         self.memory_step[start_placement:end_placement] = steps.squeeze(0).cpu().detach().numpy()
-        #TODO change done: when dine is true the last one is true and others are false beacause of internal observation
-        self.memory_done[start_placement:end_placement] = [done]*self.config.generat_link_number
-
+        if done == True:
+            self.memory_done[start_placement:end_placement] = [False]*(self.config.generat_link_number-1)[done]
+        else:
+            self.memory_done[start_placement:end_placement] = [done]*self.config.generat_link_number
+        
         self._transitions_stored += self.config.generat_link_number
     
     def sample_step (
@@ -141,19 +141,30 @@ class FractionSACTrainer(BaseTrainer):
     ):
         max_mem = min(self._transitions_stored, self.config.buffer_size)
 
-        batch = np.random.choice(max_mem, self.config.sac_batch_size)
+        set_weights = self.weights[:max_mem] + self.delta
+        probabilities = set_weights / sum(set_weights)
+        self.indices = np.random.choice(range(max_mem), self.config.sac_batch_size, 
+                                        p=probabilities, replace=False)
+        
 
-        externalObservation = self.memory_externalObservation[batch]
-        internalObservation = self.memory_internalObservation[batch]
-        newObservation = self.memory_newObservation[batch]
-        actions = self.memory_actions[batch]
-        rewards = self.memory_reward[batch]
-        steps = self.memory_step[batch]
-        dones = self.memory_done[batch]
+        #batch = np.random.choice(max_mem, self.config.sac_batch_size)
+
+        externalObservation = self.memory_externalObservation[self.indices]
+        internalObservation = self.memory_internalObservation[self.indices]
+        newObservation = self.memory_newObservation[self.indices]
+        actions = self.memory_actions[self.indices]
+        rewards = self.memory_reward[self.indices]
+        steps = self.memory_step[self.indices]
+        dones = self.memory_done[self.indices]
 
         return externalObservation, internalObservation, actions, rewards, \
             newObservation, steps, dones
-        
+            
+    def update_weights(self, prediction_errors):
+        max_error = max(prediction_errors)
+        self.max_weight = max(self.max_weight, max_error)
+        self.weights[self.indices] = prediction_errors
+  
     def _choose_actions (
         self, 
         generatedInstance, 
@@ -161,8 +172,8 @@ class FractionSACTrainer(BaseTrainer):
         statePrepares: Optional[np.ndarray] = None,
     ):
         acts = torch.zeros((0,2), dtype=torch.int)
-        probs = torch.zeros((0,1), dtype=torch.int)
-        log_probs = torch.zeros((0,1), dtype=torch.int)
+        probs = torch.zeros((0,2), dtype=torch.int)
+        log_probs = torch.zeros((0,2), dtype=torch.int)
         for i, generat in enumerate(zip(generatedInstance, generatedKnapsack)):
             pad_len = 0 if statePrepares == None else statePrepares[i].pad_len
             inst_dist = Categorical(generat[0])
@@ -177,8 +188,10 @@ class FractionSACTrainer(BaseTrainer):
             inst_act += pad_len
             acts = torch.cat([acts, torch.cat([inst_act.unsqueeze(0), 
                                                ks_act.unsqueeze(0)], dim=1)], dim=0)
-            probs = torch.cat([probs, (inst_probs*ks_probs).unsqueeze(0)], dim=0)
-            log_probs = torch.cat([log_probs, (inst_log_probs+ks_log_probs).unsqueeze(0)], dim=0)
+            probs = torch.cat([probs, torch.cat([inst_probs.unsqueeze(0), 
+                                               ks_probs.unsqueeze(0)], dim=1)], dim=0)
+            log_probs = torch.cat([log_probs, torch.cat([inst_log_probs.unsqueeze(0), 
+                                               ks_log_probs.unsqueeze(0)], dim=1)], dim=0)
 
 
         return acts, probs.to(self.device), log_probs.to(self.device)
@@ -274,77 +287,94 @@ class FractionSACTrainer(BaseTrainer):
         dones = torch.tensor(dones).to(self.device)
         
         #critic loss 
+        self.critic_optimizer1.zero_grad()
+        self.critic_optimizer2.zero_grad()
+        
         generatedInstance, generatedKnapsack, _ = self.actor_model.generateOneStep(
             steps, nextObservation, internalObservation)
         _, prob, log_prob = self._choose_actions(generatedInstance, generatedKnapsack)
-        #TODO change network
+        
         next1_values_inst, next1_values_ks, _ = self.critic_target1.generateOneStep(
             steps, nextObservation, internalObservation)
         next2_values_inst, next2_values_ks, _ = self.critic_target2.generateOneStep(
             steps, nextObservation, internalObservation)
         
-        print(prob.size())
-        print(log_prob.size())
-        print(next1_values_inst.size())
-        print(next1_values_ks.size())
-        print(self.alpha.size())
-        soft_state_values = (prob * ((torch.min(next1_values_inst, next2_values_inst)*torch.min(
-            next1_values_ks, next2_values_ks)) - self.alpha * log_prob
+        
+        inst_soft_state_values = (prob[:,0].unsqueeze(1) * ( 
+            torch.min(next1_values_inst, next2_values_inst) - self.alpha * log_prob[:,0].unsqueeze(1)
+        )).sum(dim=1)
+        ks_soft_state_values = (prob[:,1].unsqueeze(1) * ( 
+            torch.min(next1_values_ks, next2_values_ks) - self.alpha * log_prob[:,1].unsqueeze(1)
         )).sum(dim=1)
         
+        #TODO check addition instead of multiple
+        soft_state_values = inst_soft_state_values * ks_soft_state_values
         next_q_values = rewards + ~dones * self.config.discount_rate*soft_state_values
         
-        
-        soft_q1_inst, soft_q1_ks, _ = self.critic_local1.generateOneStep(
+        inst_soft_q1_values, ks_soft_q1_values, _ = self.critic_local1.generateOneStep(
             steps, externalObservation, internalObservation)
-        soft_q2_inst, soft_q2_ks, _ = self.critic_local2.generateOneStep(
+        inst_soft_q1_values = inst_soft_q1_values.gather(1, actions[:,0].unsqueeze(-1)).squeeze(-1)
+        ks_soft_q1_values = ks_soft_q1_values.gather(1, actions[:,1].unsqueeze(-1)).squeeze(-1)
+        soft_q1_values = inst_soft_q1_values * ks_soft_q1_values
+        
+        inst_soft_q2_values, ks_soft_q2_values, _ = self.critic_local2.generateOneStep(
             steps, externalObservation, internalObservation)
-        print(soft_q1_inst.size())
-        print(actions[:,0].size())
-        print(self.dd)
+        inst_soft_q2_values = inst_soft_q2_values.gather(1, actions[:,0].unsqueeze(-1)).squeeze(-1)
+        ks_soft_q2_values = ks_soft_q2_values.gather(1, actions[:,1].unsqueeze(-1)).squeeze(-1)
+        soft_q2_values = inst_soft_q2_values * ks_soft_q2_values
         
+        critic1_square_error = torch.nn.MSELoss(reduction="none")(soft_q1_values, next_q_values)
+        critic2_square_error = torch.nn.MSELoss(reduction="none")(soft_q2_values, next_q_values)
         
-        
-        
-        '''
-        
-        
-        soft_q1_values = self.critic_local1(observation).gather(1, actions.unsqueeze(-1)).squeeze(-1)
-        soft_q2_values = self.critic_local2(observation).gather(1, actions.unsqueeze(-1)).squeeze(-1)
+        weight_update = [min(l1.item(), l2.item()) for l1, l2 in zip(critic1_square_error, critic2_square_error)]
+        self.update_weights(weight_update)
     
+        critic1_loss = critic1_square_error.mean()
+        critic2_loss = critic2_square_error.mean()
         
+        critic1_loss.backward(retain_graph=True)
+        self.critic_optimizer1.step()
+        critic2_loss.backward(retain_graph=True)
+        self.critic_optimizer2.step()
         
+        #actor loss
+        self.actor_optimizer.zero_grad()
+        generatedInstance, generatedKnapsack, _ = self.actor_model.generateOneStep(
+            steps, externalObservation, internalObservation)
+        _, prob, log_prob = self._choose_actions(generatedInstance, generatedKnapsack)
         
+        local1_values_inst, local1_values_ks, _ = self.critic_local1.generateOneStep(
+            steps, externalObservation, internalObservation)
+        local2_values_inst, local2_values_ks, _ = self.critic_local2.generateOneStep(
+            steps, externalObservation, internalObservation)
         
+        inst_inside_term = self.alpha * log_prob[:,0].unsqueeze(-1) - torch.min(local1_values_inst, local2_values_inst)
+        ks_inside_term = self.alpha * log_prob[:,1].unsqueeze(-1) - torch.min(local1_values_ks, local2_values_ks)
         
-        self.actor_optimiser.zero_grad()
-        prompt = None
-        log_probs = torch.tensor([0]*self.config.ppo_batch_size, 
-                                 dtype=torch.float64, device=self.device)
-        action_probs = torch.tensor([0]*self.config.ppo_batch_size, 
-                                 dtype=torch.float64, device=self.device)
-        
-        for i in range(0, self.config.generat_link_number):  
-            generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
-                observation, self.config.generat_link_number, prompt)
-            
-            act, log_prob = self._choose_actions(generatedInstance, generatedKnapsack)
-            log_probs += log_prob.squeeze()
-            print(act.size())
-            action_probs *= generatedInstance[list(range(0, self.config.generat_link_number)),
-                                              act[:,0]]
-            action_probs *= generatedKnapsack[list(range(0, self.config.generat_link_number)),
-                                              act[:,1]]
-
-        q1_values = self.critic1(observation)
-        q2_values = self.critic2(observation)
-        inside_term = self.alpha * log_probs - torch.min(q1_values, q2_values)
-        actor_loss = (action_probs * inside_term).sum(dim=1).mean()
-        print(actor_loss)
+        inst_actor_loss = (prob[:,0].unsqueeze(-1) * inst_inside_term).sum(dim=1).mean()
+        ks_actor_loss = (prob[:,1].unsqueeze(-1) * ks_inside_term).sum(dim=1).mean()
+        actor_loss = inst_actor_loss + ks_actor_loss
         
         actor_loss.backward()
-        self.actor_optimiser.step()'''
-      
+        self.actor_optimizer.step()
+        
+        #temperature loss
+        self.alpha_optimizer.zero_grad()
+        
+        alpha_loss = -(self.log_alpha * ((
+            log_prob[:,0] + log_prob[:,1]).unsqueeze(-1) + self.target_entropy).detach()).mean()
+        alpha_loss.backward()
+        self.alpha_optimizer.step()
+        self.alpha = self.log_alpha.exp() 
+        
+        self.soft_update(self.critic_target1, self.critic_local1)
+        self.soft_update(self.critic_target2, self.critic_local2)
+        
+       
+    def soft_update(self, target_model, origin_model):
+        for target_param, local_param in zip(target_model.parameters(), origin_model.parameters()):
+            target_param.data.copy_(self.config.tau * local_param.data + (1 - self.config.tau) * target_param.data)
+        
     def load_models (self):
         file_path = self.savePath + "/" + self.actor_model.name + ".ckpt"
         checkpoint = torch.load(file_path)
