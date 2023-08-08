@@ -14,7 +14,7 @@ The knapsack problem refers to a classic optimization problem where a set of obj
 While this project demonstrates great potential, :bug: there is an issue or bug that needs to be addressed. As specified in the issues section, the current problem lies in the model's training, which does not yield satisfactory performance. By sharing the issue details, I hope to collaborate with others and collectively find a solution. :rocket:
 
 ## :bookmark: 2- Proposed Reinforcement System
-### 1-2- RL & PPO Background
+### 1-2- RL algorithms Background
 Reinforcement learning is a type of machine learning where an agent learns to make decisions by interacting with an environment. The agent receives feedback in the form of rewards or penalties based on its actions and uses this feedback to improve its decision-making abilities over time. The goal is to find the optimal policy that maximizes the cumulative rewards obtained from the environment.
 
 Proximal Policy Optimization (PPO) is a popular algorithm used in reinforcement learning. PPO is designed to optimize the policy, which is the strategy used by the agent to make decisions. It is an on-policy method, meaning it collects data by interacting with the environment using the current policy.
@@ -22,6 +22,12 @@ Proximal Policy Optimization (PPO) is a popular algorithm used in reinforcement 
 PPO uses a surrogate objective function to estimate the loss between the new policy and the old policy. It then applies optimization techniques to update the policy in a way that maximizes the expected rewards while ensuring that the policy update is not too large. By gradually improving the policy through multiple iterations, PPO is able to find a locally optimal policy.
 
 PPO has gained attention due to its ability to strike a balance between sample efficiency and stability. It avoids the need for value function approximation and provides an easy-to-use algorithm for reinforcement learning tasks.
+
+Discrete Soft Actor-Critic (SAC) is an extension of the Soft Actor-Critic algorithm specifically designed for problems with discrete action spaces. SAC is a model-free, off-policy algorithm used in reinforcement learning that aims to find the optimal policy for decision-making.
+
+SAC uses an entropy regularization term to encourage exploration and prevent premature convergence to suboptimal solutions. It also incorporates a value function to estimate the expected return for a given state-action pair. By leveraging both the policy and the value function, SAC can optimize the policy in a sample-efficient and stable manner.
+
+The algorithm iteratively collects data using the current policy, updates the value function, and optimizes the policy using the surrogate objective derived from the value function and the entropy regularization. SAC has shown promising results in challenging environments with discrete action spaces and has become a popular choice for reinforcement learning tasks due to its efficiency and stability.
 
 ### 2-2- RL System Model
 **STATE:** In our system model, each state is perceived as an external observation represented by a 3D matrix. The first dimension comprises all information related to one problem (our methodology allows for the inclusion of multiple problems). The second dimension accommodates the maximum input size of the transformer model, which is equal to the sum of the instanceobservationsize, knapsackobservationsize, and 3. Lastly, the third dimension contains information regarding instances and knapsacks, incorporating all n-dimensional instances along with an additional dimension for value, followed by all knapsack n-dimensions and an extra dimension filled with zeroes.
@@ -69,6 +75,8 @@ Additionally, both algorithms have corresponding critic models, which we will al
 
 **Fraction_PPO_Trainer with Transformer as actor model:** In contrast to the "PPO_Trainer" algorithm, the "Fraction_PPO_Trainer" returns the reward and log probability for each generated link separately. Therefore, each action is treated as an individual element in the training step. Given the same external observation for a group of elements, the internal observation plays a crucial role in predicting values with critic model. Consequently, the critic model in this algorithm is an MLP model with two inputs: the external observation and the internal observation."
 
+#### 2-4-2- Discrete SAC
+**Fraction_SAC_Trainer with Transformer as actor model:**
 ## :bookmark: 3- Experiment
 
 ### 1-3- Data Format and Preprocessing part
