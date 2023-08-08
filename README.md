@@ -48,8 +48,6 @@ We have introduced two transformer models as reinforcement actor in our project.
 The first model, actor model, is a Encoder-Decoder pytorch transformer model. In this model, each state (or external observation) is sent as input to the encoder, and every accepted action is added to the decoder prompt as an internal observation to generate new output. The output of the decoder is divided into two parts. After that we calculate the cosine similarity betwwen first part of out put and all remain instances and between second part of out put and knapsacks to obtain a softmax distribution for actions.
 ![The structure](images/fig_4.jpg)
 
-For SAC critic models we consider linear layers for out puts. so, The first part is sent to a linear layer with a softmax activation function to determine the first part of the action (choosing an instance), while the second part is sent to another linear layer with softmax to determine the second part of the action (choosing a knapsack).
-![The structure](images/fig_2.jpg)
 #### 2-3-2- Encoder-Mlp Model
 The second model is an Encoder-MLP model, introduced to test the functionality of the models. This model consists of a transformer Encoder and an MLP model. The external observation is passed through the Encoder, and the output of the encoder is then sent to the MLP model. The output of the MLP is divided into two parts, similar to the transformer model, and sent to two different linear models with softmax activation functions.
 
@@ -80,6 +78,12 @@ Additionally, both algorithms have corresponding critic models, which we will al
 
 #### 2-4-2- Discrete SAC
 **Fraction_SAC_Trainer with Transformer as actor model:**
+After implementing the PPO Trainer and Fraction PPO Trainer algorithms, we identified certain weaknesses in training our actor model. To address these limitations, we decided to incorporate the Discrete SAC algorithm, taking inspiration from the "Soft Actor-Critic for Discrete Action Settings" paper and the corresponding implementation available on GitHub at https://github.com/Felhof/DiscreteSAC.
+
+In the SAC critic models, we opted to use the same transformer model as the actor model. However, instead of utilizing cosine similarity, we employed linear layers for the output. The first part of the action, which involves selecting an instance, is fed into a linear layer with a softmax activation function. Simultaneously, the second part of the action, involving choosing a knapsack, is passed through another linear layer with softmax activation to determine its probability.
+
+![The structure](images/fig_2.jpg)
+
 ## :bookmark: 3- Experiment
 
 ### 1-3- Data Format and Preprocessing part
