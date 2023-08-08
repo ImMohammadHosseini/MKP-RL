@@ -46,6 +46,7 @@ We have introduced two transformer models as reinforcement actor in our project.
 
 #### 1-3-2- Transformer Model
 The first model, actor model, is a Encoder-Decoder pytorch transformer model. In this model, each state (or external observation) is sent as input to the encoder, and every accepted action is added to the decoder prompt as an internal observation to generate new output. The output of the decoder is divided into two parts. After that we calculate the cosine similarity betwwen first part of out put and all remain instances and between second part of out put and knapsacks to obtain a softmax distribution for actions.
+![The structure](images/fig_4.jpg)
 
 For SAC critic models we consider linear layers for out puts. so, The first part is sent to a linear layer with a softmax activation function to determine the first part of the action (choosing an instance), while the second part is sent to another linear layer with softmax to determine the second part of the action (choosing a knapsack).
 ![The structure](images/fig_2.jpg)
