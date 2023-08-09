@@ -103,9 +103,6 @@ You can see the output of the mean of every 50 steps in the model in the plot be
 >[!IMPORTANT]
 >ISSUE
 >Please take a look at the plot above. As you can see, our model did not train successfully, and we noticed that the outputs of >"ppoTrain" and "fractionsacTrainer" are the same. In an attempt to address this issue, we implemented an extra pretraining process >for the transformer model using the output of a greedy algorithm. However, we observed that the scores actually decreased after >adding the pretrain step.
-
 >Upon further investigation into the outputs at each step, we realized that there may be a lack of a specific sequence for the >decoder input in our algorithm. This results in a significant amount of variation, which we believe could be contributing to the >weakness in the model's output. This is just one possible explanation for the training process not being effective, and we are >uncertain about how to resolve it.
-
 >If you have any insights or suggestions on how to tackle this problem, please do not hesitate to reach out to us. We would greatly >appreciate any assistance you can provide.
-2-3 Transformer pre_Processing step
 
