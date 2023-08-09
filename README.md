@@ -86,7 +86,7 @@ In the SAC critic models, we opted to use the same transformer model as the acto
 
 ## :bookmark: 3- Experiment
 
-### 1-3- Data Format and Preprocessing part
+### 1-3- Data (external observation) Format
 Every time the code is executed, it generates instance information and knapsack information randomly. All of this information is treated as a state, as explained in section 2-2. However, after conducting some experiments, we realized that the variance of the states is very high. The main goal of this project is to solve problems with high dimensions and numerous instances and knapsacks. In order to reduce this variance, we have decided to save one randomly generated branch of data as the "main_data". We will use this "main_data" to determine the order of the problem's data in each state. To accomplish this, we calculate the cosine similarity between our maindata and the data of the problem, and then organize the problem's data based on the highest similarity with the "main_data".
 
 ### 2-3 Training Process
