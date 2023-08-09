@@ -6,16 +6,12 @@ sys.path.append('MKP-RL/solve_algorithms/')
 
 import torch
 import numpy as np
-from torch.optim import Adam, RMSprop, SGD, AdamW
+from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
 from typing import Optional
-from torch.distributions.categorical import Categorical
-from .models.transformer import TransformerKnapsack
-from .data_structure.state_prepare import ExternalStatePrepare
-from configs.transformers_model_configs import TransformerKnapsackConfig
-from data.dataProducer import multipleKnapSackData, multiObjectiveDimentional
-from os import path, makedirs
+
 from solve_algorithms.greedy_select import GreedySelect
+from solve_algorithms.random_select import RandomSelect
 
 class TransformerTrainer:
 
@@ -33,8 +29,8 @@ class TransformerTrainer:
         self.model = model 
         
         if optimizer is None:
-            self.optimizer = AdamW(self.model.parameters(), 
-                lr=0.1#self.model.config.first_train_lr
+            self.optimizer = Adam(self.model.parameters(), 
+                lr=0.01#self.model.config.first_train_lr
             )
         else: self.optimizer = optimizer
         self.loss_function = torch.nn.CrossEntropyLoss()
@@ -55,7 +51,7 @@ class TransformerTrainer:
         nopeak_mask = nopeak_mask.masked_fill(nopeak_mask == 1, float(0.0))
         nopeak_mask = nopeak_mask.to(self.device)
         cnt_wait=0; best=1e9; loss_list=[]; 
-        for epoch in range(0):#self.model.config.first_train_epoc):
+        for epoch in range(500):#self.model.config.first_train_epoc):
             losses = []
             for sts, tgt, inst_label, ks_label in data:
                 
@@ -84,7 +80,7 @@ class TransformerTrainer:
             else:
                 cnt_wait += 1
             
-            if cnt_wait == 50:
+            if cnt_wait == 20:
                 print('Early stopping!')
                 break
             
@@ -109,6 +105,7 @@ class TransformerTrainer:
                            dtype=torch.float32, device=self.device)
         targets = torch.zeros((0, self.generate_link_number+1, self.model.config.input_decode_dim), 
                            dtype=torch.float32, device=self.device)
+
         all_ks_labels = []
         all_instance_labels = []
         
@@ -122,17 +119,17 @@ class TransformerTrainer:
                 
                 stateCaps, stateWeightValues = greedy_select.getObservation()
                 
-                stateWeightValues = np.insert(stateWeightValues, statePrepare.pad_len, 
+                stateWeightValues_encode = np.insert(stateWeightValues, statePrepare.pad_len, 
                                               SOD, axis=0)
                 
-                state = np.append(np.append(stateWeightValues, EOD, axis=0), 
+                state = np.append(np.append(stateWeightValues_encode, EOD, axis=0), 
                                   np.append(stateCaps, EOD, axis=0),axis=0)
                 states = torch.cat([states, torch.tensor(state, dtype=torch.float32, 
                                                          device=self.device).unsqueeze(dim=0)], 0)
                 
                 state_target = torch.tensor(SOD_decoder, dtype=torch.float32, 
                                             device=self.device)
-                
+
                 ks_labels = torch.tensor([-1]*self.generate_link_number, dtype=torch.int)
                 inst_labels = torch.tensor([-1]*self.generate_link_number, dtype=torch.int)
                 for index in range(min(len(acts), self.generate_link_number)):
@@ -153,7 +150,94 @@ class TransformerTrainer:
                 all_instance_labels.append(inst_labels.unsqueeze(0))
                 all_ks_labels.append(ks_labels.unsqueeze(0))
                 targets = torch.cat([targets, state_target.unsqueeze(0)],0)
-                #print(state_target)
+        
+        for statePrepare in self.statePrepares:
+            for _ in range(30):
+                random_select = RandomSelect(statePrepare)
+                _, test_acts = random_select.test_step_randomInst_ksFirstFit()
+                for i in range(len(test_acts)-3):
+                    random_select.reset()
+                    _, _ = random_select.test_step_randomInst_ksFirstFit(i)
+                    _, acts = random_select.test_step_randomInst_ksFirstFit()
+                    
+                    stateCaps, stateWeightValues = random_select.getObservation()
+                    
+                    stateWeightValues_encode = np.insert(stateWeightValues, statePrepare.pad_len, 
+                                                  SOD, axis=0)
+                    
+                    state = np.append(np.append(stateWeightValues_encode, EOD, axis=0), 
+                                      np.append(stateCaps, EOD, axis=0),axis=0)
+                    states = torch.cat([states, torch.tensor(state, dtype=torch.float32, 
+                                                             device=self.device).unsqueeze(dim=0)], 0)
+                    
+                    state_target = torch.tensor(SOD_decoder, dtype=torch.float32, 
+                                                device=self.device)
+    
+                    ks_labels = torch.tensor([-1]*self.generate_link_number, dtype=torch.int)
+                    inst_labels = torch.tensor([-1]*self.generate_link_number, dtype=torch.int)
+                    for index in range(min(len(acts), self.generate_link_number)):
+                        inst_labels[index] = int(acts[index][0])
+                        ks_labels[index] = int(acts[index][1])
+                        inst_act = int(acts[index][0])
+                        ks_act = random_select.statePrepare.getRealKsAct(int(acts[index][1]))
+                        ks = torch.tensor(stateCaps[ks_act], device=self.device, 
+                                          dtype=torch.float32).unsqueeze(0)
+                        inst = torch.tensor(stateWeightValues[inst_act], device=self.device, 
+                                            dtype=torch.float32).unsqueeze(0)
+                        state_target = torch.cat([state_target, torch.cat([inst, ks],1)], 0)
+                    if state_target.size(0) < self.generate_link_number+1:
+                        repeat_size = (self.generate_link_number+1) - state_target.size(0)
+                        state_target = torch.cat([state_target, torch.tensor(np.repeat(
+                            PAD_decode, repeat_size, axis=0), device=self.device, 
+                            dtype=torch.float32)], 0)
+                    all_instance_labels.append(inst_labels.unsqueeze(0))
+                    all_ks_labels.append(ks_labels.unsqueeze(0))
+                    targets = torch.cat([targets, state_target.unsqueeze(0)],0)
+        
+        for statePrepare in self.statePrepares:
+            for _ in range(30):
+                random_select = RandomSelect(statePrepare)
+                _, test_acts = random_select.test_step_two_random()
+                for i in range(len(test_acts)-3):
+                    random_select.reset()
+                    _, _ = random_select.test_step_two_random(i)
+                    _, acts = random_select.test_step_two_random()
+                    
+                    stateCaps, stateWeightValues = random_select.getObservation()
+                    
+                    stateWeightValues_encode = np.insert(stateWeightValues, statePrepare.pad_len, 
+                                                  SOD, axis=0)
+                    
+                    state = np.append(np.append(stateWeightValues_encode, EOD, axis=0), 
+                                      np.append(stateCaps, EOD, axis=0),axis=0)
+                    states = torch.cat([states, torch.tensor(state, dtype=torch.float32, 
+                                                             device=self.device).unsqueeze(dim=0)], 0)
+                    
+                    state_target = torch.tensor(SOD_decoder, dtype=torch.float32, 
+                                                device=self.device)
+    
+                    ks_labels = torch.tensor([-1]*self.generate_link_number, dtype=torch.int)
+                    inst_labels = torch.tensor([-1]*self.generate_link_number, dtype=torch.int)
+                    for index in range(min(len(acts), self.generate_link_number)):
+                        inst_labels[index] = int(acts[index][0])
+                        ks_labels[index] = int(acts[index][1])
+                        inst_act = int(acts[index][0])
+                        ks_act = random_select.statePrepare.getRealKsAct(int(acts[index][1]))
+                        ks = torch.tensor(stateCaps[ks_act], device=self.device, 
+                                          dtype=torch.float32).unsqueeze(0)
+                        inst = torch.tensor(stateWeightValues[inst_act], device=self.device, 
+                                            dtype=torch.float32).unsqueeze(0)
+                        state_target = torch.cat([state_target, torch.cat([inst, ks],1)], 0)
+                    if state_target.size(0) < self.generate_link_number+1:
+                        repeat_size = (self.generate_link_number+1) - state_target.size(0)
+                        state_target = torch.cat([state_target, torch.tensor(np.repeat(
+                            PAD_decode, repeat_size, axis=0), device=self.device, 
+                            dtype=torch.float32)], 0)
+                    all_instance_labels.append(inst_labels.unsqueeze(0))
+                    all_ks_labels.append(ks_labels.unsqueeze(0))
+                    targets = torch.cat([targets, state_target.unsqueeze(0)],0)
+                                
+                
         all_instance_labels = torch.cat(all_instance_labels, 0)
         all_ks_labels = torch.cat(all_ks_labels, 0)
         tensorDataset = TensorDataset(states, targets, all_instance_labels, all_ks_labels)
