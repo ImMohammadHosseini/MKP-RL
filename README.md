@@ -89,8 +89,11 @@ In the SAC critic models, we opted to use the same transformer model as the acto
 ### 1-3- Data (external observation) Format
 Every time the code is executed, it generates instance information and knapsack information randomly. All of this information is treated as a state, as explained in section 2-2. However, after conducting some experiments, we realized that the variance of the states is very high. The main goal of this project is to solve problems with high dimensions and numerous instances and knapsacks. In order to reduce this variance, we have decided to save one randomly generated branch of data as the "main_data". We will use this "main_data" to determine the order of the problem's data in each state. To accomplish this, we calculate the cosine similarity between our maindata and the data of the problem, and then organize the problem's data based on the highest similarity with the "main_data".
 
-### 2-3 Training Process
+### 2-3 Training Process and results
+#### 1-2-3 Fraction_PPO_Trainer
+After creating a new state (external observation) in environment, the "make_step" method is called, as I explain in the RL algorithm section. In the "make_step" method, our trainer class generates some experiments for the training process. After saving these experiments, if the number of saved experiences reaches a specified value (as PPO internal batch), the algorithm calls the "train_minibatch" method to train our model using the gathered data. You can see the output of our model in the plot below.
 
+![The structure](plots/fraction_ppo_score_per_greedyScore.png)
 
 ### 2-3 Transformer pre_Processing step
 
