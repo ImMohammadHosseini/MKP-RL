@@ -91,7 +91,11 @@ Every time the code is executed, it generates instance information and knapsack 
 
 ### 2-3 Training Process and results
 #### 1-2-3 Fraction_PPO_Trainer
-After creating a new state (external observation) in environment, the "make_step" method is called, as I explain in the RL algorithm section. In the "make_step" method, our trainer class generates some experiments for the training process. After saving these experiments, if the number of saved experiences reaches a specified value (as PPO internal batch), the algorithm calls the "train_minibatch" method to train our model using the gathered data. You can see the output of our model in the plot below.
+After creating a new state (external observation) in environment, the "make_step" method is called, as I explain in the RL algorithm section. In the "make_step" method, our trainer class generates some experiments for the training process. After saving these experiments, if the number of saved experiences reaches a specified value (as PPO internal batch), the algorithm calls the "train_minibatch" method to train our model using the gathered data. 
+To check the performance and training process of our model, we run the "final_score" method in the environment class after every episode. This method calculates the scores for each knapsack and adds them up to obtain a single number. After obtaining this score, we divide it by the score achieved by the greedy algorithm to gain a better understanding of our model's performance. A lower score indicates that our model performed worse than the greedy algorithm, while a score greater than 1 means it performed better.
+
+For the output plot, we consider the mean of the last 50 episodes at each step. If this mean is higher than the previous best score, we save both the actor and critic models.
+You can see the output of the mean of every 50 steps in the model in the plot below.
 
 ![The structure](plots/fraction_ppo_score_per_greedyScore.png)
 
