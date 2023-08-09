@@ -99,6 +99,6 @@ You can see the output of the mean of every 50 steps in the model in the plot be
 
 ![The structure](plots/fraction_ppo_score_per_greedyScore.png)
 
-$${\color{red}explain about ISSUE}$$
+$${\color{red}ISSUE}$$
 2-3 Transformer pre_Processing step
 
