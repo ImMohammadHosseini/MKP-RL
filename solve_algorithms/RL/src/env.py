@@ -122,8 +122,8 @@ class KnapsackAssignmentEnv (gym.Env):
         
         info = self._get_info()
 
-        if terminated:
-            return None, externalRewards, terminated, info
+        #if terminated:
+        #    return None, externalRewards, terminated, info
         
         externalObservation = self._get_obs()
         SOD = np.array([1.]*self.dim)
