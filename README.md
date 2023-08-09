@@ -91,6 +91,7 @@ Every time the code is executed, it generates instance information and knapsack 
 
 ### 2-3 Training Process
 
+
 ### 2-3 Transformer pre_Processing step
 
 ## :bookmark: 3- Issue
