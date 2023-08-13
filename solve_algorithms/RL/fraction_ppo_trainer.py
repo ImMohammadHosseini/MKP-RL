@@ -137,8 +137,9 @@ class FractionPPOTrainer(BaseTrainer):
             inst_log_probs = inst_dist.log_prob(inst_act)
             ks_log_probs = ks_dist.log_prob(ks_act)
             
-            acts = torch.cat([acts, torch.cat([inst_act, ks_act], dim=1)], dim=0)
-            log_probs = torch.cat([log_probs, inst_log_probs+ks_log_probs], dim=0)
+            acts = torch.cat([acts, torch.cat([inst_act.unsqueeze(0), 
+                                               ks_act.unsqueeze(0)], dim=1)], dim=0)
+            log_probs = torch.cat([log_probs, inst_log_probs.unsqueeze(0)+ks_log_probs.unsqueeze(0)], dim=0)
 
         return acts, log_probs
 
@@ -163,7 +164,8 @@ class FractionPPOTrainer(BaseTrainer):
             
             eCap = knapSack.getExpectedCap()
             weight = statePrepares[index].getObservedInstWeight(inst_act)
-            
+            value = statePrepares[index].getObservedInstValue(inst_act)
+
             if inst_act in accepted_actions[index,:,0]: # inst_act < statePrepares[index].pad_len or
                     rewards.append(0)#-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
@@ -171,13 +173,13 @@ class FractionPPOTrainer(BaseTrainer):
             if all(eCap >= weight):
                 prompt[index][step[index]+1] = torch.cat([inst, ks], 1)
                 step[index] += 1
-                value = statePrepares[index].getObservedInstValue(inst_act)
                 rewards.append(+(value / np.sum(weight)))
                 knapSack.removeExpectedCap(weight)
                 accepted_actions[index] = np.append(accepted_actions[index][1:],
                                                     [[inst_act, ks_act]], 0)
             else:
-                rewards.append(-self.info['VALUE_LOW'])
+                rewards.append(-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
+        print(rewards)
         return torch.tensor(rewards, device=self.device)
     
     def make_steps (
@@ -233,10 +235,6 @@ class FractionPPOTrainer(BaseTrainer):
         for _ in range(self.config.ppo_epochs):
             batches = self.generate_batch()
             
-            #batch_actor_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-            #batch_critic_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-            #batch_entropy_loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-            #count = 0
             
             for index in range(self.main_batch_size):
                 obs = memoryObs[index].squeeze()
@@ -278,11 +276,11 @@ class FractionPPOTrainer(BaseTrainer):
                     for i, generat in enumerate(zip(generatedInstance, generatedKnapsack)):
                         inst_dist = Categorical(generat[0])
                         ks_dist = Categorical(generat[1])
-                        entropy_loss = torch.cat([entropy_loss, inst_dist.entropy()+ks_dist.entropy()], 0)
+                        entropy_loss = torch.cat([entropy_loss, (inst_dist.entropy()+ks_dist.entropy()).unsqueeze(0)], 0)
                         inst_log_probs = torch.cat([inst_log_probs, inst_dist.log_prob(
-                            batchActs[i,0])], 0)
+                            batchActs[i,0]).unsqueeze(0)], 0)
                         ks_log_probs = torch.cat([ks_log_probs, ks_dist.log_prob(
-                            batchActs[i,1])], 0)
+                            batchActs[i,1]).unsqueeze(0)], 0)
 
                     new_log_probs = inst_log_probs + ks_log_probs
                     
@@ -301,17 +299,13 @@ class FractionPPOTrainer(BaseTrainer):
                     critic_loss = torch.mean(critic_loss)
                     entropy_loss = -torch.mean(entropy_loss)
 
-                    #count = 1
-                    #batch_actor_loss += actor_loss.data
-                    #batch_critic_loss += critic_loss.data
-                    #batch_entropy_loss += torch.mean(entropy_loss)
+                    
                     actor_loss_leaf = Variable(actor_loss.data, requires_grad=True)
                     critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
                     entropy_loss_leaf = Variable(entropy_loss.data, requires_grad=True)
 
                     total_loss = actor_loss_leaf + 0.5*critic_loss_leaf + 0.1*entropy_loss_leaf
-                    #print(actor_loss_leaf)
-                    #print(critic_loss_leaf)
+                    
                     self.actor_optimizer.zero_grad()
                     self.critic_optimizer.zero_grad()
 

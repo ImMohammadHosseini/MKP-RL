@@ -130,7 +130,7 @@ class FractionSACTrainer(BaseTrainer):
         self.memory_reward[start_placement:end_placement] = rewards.squeeze(0).cpu().detach().numpy()
         self.memory_step[start_placement:end_placement] = steps.squeeze(0).cpu().detach().numpy()
         if done == True:
-            self.memory_done[start_placement:end_placement] = [False]*(self.config.generat_link_number-1)[done]
+            self.memory_done[start_placement:end_placement] = [False]*(self.config.generat_link_number-1)+[done]
         else:
             self.memory_done[start_placement:end_placement] = [done]*self.config.generat_link_number
         
@@ -143,8 +143,15 @@ class FractionSACTrainer(BaseTrainer):
 
         set_weights = self.weights[:max_mem] + self.delta
         probabilities = set_weights / sum(set_weights)
-        self.indices = np.random.choice(range(max_mem), self.config.sac_batch_size, 
+        try:
+            self.indices = np.random.choice(range(max_mem), self.config.sac_batch_size, 
                                         p=probabilities, replace=False)
+        except:
+            print(probabilities)
+            print(np.isnan(probabilities).any())
+            print(np.isnan(probabilities).all())
+
+
         
 
         #batch = np.random.choice(max_mem, self.config.sac_batch_size)
