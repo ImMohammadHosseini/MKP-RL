@@ -2,6 +2,7 @@
 """
 
 """
+
 import torch
 import numpy as np
 from torch.optim import AdamW
@@ -18,7 +19,7 @@ from configs.ppo_configs import PPOConfig
 from os import path, makedirs
 
 
-class FractionPPOTrainer(BaseTrainer):
+class OneGenerateFractionPPOTrainer(BaseTrainer):
     r"""
     this implementation is inspired by: 
         https://github.com/lvwerra/trl/blob/main/trl/trainer/ppo_trainer.py and 
@@ -30,20 +31,16 @@ class FractionPPOTrainer(BaseTrainer):
         info: List,
         save_path: str,
         main_batch_size: int,
-        config: Optional[PPOConfig] = None,
-        actor_model: Optional[torch.nn.Module] = None,
-        critic_model: Optional[torch.nn.Module] = None,
-        external_critic_model: Optional[torch.nn.Module] = None,
+        config: PPOConfig,
+        actor_model: torch.nn.Module,
+        critic_model: torch.nn.Module,
+        external_critic_model: torch.nn.Module,
         device: torch.device = torch.device("cpu"),
         actor_optimizer: Optional[torch.optim.Optimizer] = None,
         critic_optimizer: Optional[torch.optim.Optimizer] = None,
         external_critic_optimizer: Optional[torch.optim.Optimizer] = None,
     ):
         super().__init__(config)
-        
-        if not isinstance(config, PPOConfig):
-            raise ValueError(f"config must be a PPOConfig, got {type(config)}")
-        
         
         self.device = device
         self.softmax = torch.nn.Softmax()
@@ -87,6 +84,7 @@ class FractionPPOTrainer(BaseTrainer):
         self.batch_critic_loss = torch.tensor(0., device=self.device)
     
         self._reset_memory()
+        
     def _reset_memory (self) :
         self.memory_observation = [] 
         self.memory_internalObservation = []
@@ -120,26 +118,19 @@ class FractionPPOTrainer(BaseTrainer):
             self.memory_done.append(torch.tensor([[False]*(self.config.generat_link_number-1)+[True]]*self.main_batch_size))
         else:
             self.memory_done.append(torch.tensor([[done]*self.config.generat_link_number]*self.main_batch_size))
-        
+     
     def _choose_actions (
         self, 
-        generatedInstance, 
-        generatedKnapsack, 
+        generatedAction,
     ):
-        acts = torch.zeros((0,2), dtype=torch.int)
+        acts = torch.zeros((0,1), dtype=torch.int)
         log_probs = torch.zeros((0,1), dtype=torch.int)
-        for gi, gk in zip(generatedInstance, generatedKnapsack):
-            inst_dist = Categorical(gi)
-            ks_dist = Categorical(gk)
-            inst_act = inst_dist.sample() 
-            ks_act = ks_dist.sample()
-        
-            inst_log_probs = inst_dist.log_prob(inst_act)
-            ks_log_probs = ks_dist.log_prob(ks_act)
+        for ga in generatedAction:
+            act_dist = Categorical(ga)
+            act = act_dist.sample() 
             
-            acts = torch.cat([acts, torch.cat([inst_act.unsqueeze(0), 
-                                               ks_act.unsqueeze(0)], dim=1)], dim=0)
-            log_probs = torch.cat([log_probs, inst_log_probs.unsqueeze(0)+ks_log_probs.unsqueeze(0)], dim=0)
+            acts = torch.cat([acts, act.unsqueeze(0).unsqueeze(0).cpu()], dim=0)
+            log_probs = torch.cat([log_probs, act_dist.log_prob(act).unsqueeze(0).unsqueeze(0).cpu()], dim=0)
 
         return acts, log_probs
 
@@ -153,8 +144,9 @@ class FractionPPOTrainer(BaseTrainer):
     ):
         rewards = []
         for index, act in enumerate(actions):
-            inst_act = int(act[0]) + statePrepares[index].pad_len
-            ks_act = statePrepares[index].getRealKsAct(int(act[1]))
+            inst_act = int(act // self.actor_model.config.inst_obs_size) 
+            ks_act = statePrepares[index].getRealKsAct(int(
+                act % self.actor_model.config.knapsack_obs_size))
             knapSack = statePrepares[index].getKnapsack(ks_act)
             ks = torch.tensor(statePrepares[index].getObservedKS(ks_act),
                               device=self.device, dtype=torch.float32).unsqueeze(0)
@@ -166,8 +158,8 @@ class FractionPPOTrainer(BaseTrainer):
             weight = statePrepares[index].getObservedInstWeight(inst_act)
             value = statePrepares[index].getObservedInstValue(inst_act)
 
-            if inst_act in accepted_actions[index,:,0]: # inst_act < statePrepares[index].pad_len or
-                    rewards.append(0)#-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
+            if inst_act < statePrepares[index].pad_len or inst_act in accepted_actions[index,:,0]: 
+                    rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
             
             if all(eCap >= weight):
@@ -179,7 +171,7 @@ class FractionPPOTrainer(BaseTrainer):
                                                     [[inst_act, ks_act]], 0)
             else:
                 rewards.append(-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
-        print(rewards)
+        #print(rewards)
         return torch.tensor(rewards, device=self.device)
     
     def make_steps (
@@ -187,7 +179,7 @@ class FractionPPOTrainer(BaseTrainer):
         externalObservation: torch.tensor,
         statePrepares: np.ndarray,
     ):
-        actions = torch.zeros((self.main_batch_size,0,2), dtype=torch.int, device=self.device)
+        actions = torch.zeros((self.main_batch_size,0), dtype=torch.int, device=self.device)
         probs = torch.zeros((self.main_batch_size,0), dtype=torch.float64, device=self.device)
         values = torch.zeros((self.main_batch_size,0), dtype=torch.float64, device=self.device)
         internalRewards = torch.zeros((self.main_batch_size,0), dtype=torch.float64, device=self.device)
@@ -203,16 +195,16 @@ class FractionPPOTrainer(BaseTrainer):
         steps = torch.zeros((self.main_batch_size,0), dtype=torch.int64, device=self.device)
         
         for i in range(0, self.config.generat_link_number):
-            generatedInstance, generatedKnapsack, prompt = self.actor_model.generateOneStep(
+            generatedAction, prompt = self.actor_model.generateOneStep(
                 step, externalObservation, prompt)
-            act, prob = self._choose_actions(generatedInstance, generatedKnapsack)
+            act, prob = self._choose_actions(generatedAction)
             steps = torch.cat([steps, step.unsqueeze(1)], 1)
             internalObservations = torch.cat([internalObservations, prompt.unsqueeze(1)], 1)
             value = self.critic_model(externalObservation, prompt)
             values = torch.cat([values, value],1)
             internalReward = self.internal_reward(act, accepted_actions, step, 
                                                   prompt, statePrepares)
-            actions = torch.cat([actions, act.unsqueeze(1).to(self.device)], 1)
+            actions = torch.cat([actions, act.to(self.device)], 1)
             probs = torch.cat([probs, prob.to(self.device)], 1)
            
             internalRewards = torch.cat([internalRewards, internalReward.unsqueeze(1)], 1)
@@ -265,24 +257,18 @@ class FractionPPOTrainer(BaseTrainer):
                     batchProbs = probs[batch].to(self.device)
                     batchVals = vals[batch].to(self.device)
                     
-                    generatedInstance, generatedKnapsack, _ = self.actor_model.generateOneStep(
+                    generatedAct, _ = self.actor_model.generateOneStep(
                         batchSteps, batchObs.to(self.device), batchIntObs)
                    
                     #batchActs = batchActs.to(self.device)
                     entropy_loss = torch.zeros((0,1), dtype=torch.int)
-                    inst_log_probs = torch.zeros((0,1), dtype=torch.int)
-                    ks_log_probs = torch.zeros((0,1), dtype=torch.int)
+                    new_log_probs = torch.zeros((0,1), dtype=torch.int)
 
-                    for i, generat in enumerate(zip(generatedInstance, generatedKnapsack)):
-                        inst_dist = Categorical(generat[0])
-                        ks_dist = Categorical(generat[1])
-                        entropy_loss = torch.cat([entropy_loss, (inst_dist.entropy()+ks_dist.entropy()).unsqueeze(0)], 0)
-                        inst_log_probs = torch.cat([inst_log_probs, inst_dist.log_prob(
-                            batchActs[i,0]).unsqueeze(0)], 0)
-                        ks_log_probs = torch.cat([ks_log_probs, ks_dist.log_prob(
-                            batchActs[i,1]).unsqueeze(0)], 0)
-
-                    new_log_probs = inst_log_probs + ks_log_probs
+                    for i, generat in enumerate(generatedAct):
+                        act_dist = Categorical(generat)
+                        entropy_loss = torch.cat([entropy_loss, act_dist.entropy().unsqueeze(0).unsqueeze(0).cpu()], 0)
+                        new_log_probs = torch.cat([new_log_probs, act_dist.log_prob(
+                            batchActs[i].to(self.device)).unsqueeze(0).unsqueeze(0).cpu()], 0)
                     
                     newVal = self.critic_model(batchObs.to(self.device), 
                                                batchIntObs.to(self.device))

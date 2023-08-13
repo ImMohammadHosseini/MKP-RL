@@ -51,7 +51,7 @@ class TransformerTrainer:
         nopeak_mask = nopeak_mask.masked_fill(nopeak_mask == 1, float(0.0))
         nopeak_mask = nopeak_mask.to(self.device)
         cnt_wait=0; best=1e9; loss_list=[]; 
-        for epoch in range(500):#self.model.config.first_train_epoc):
+        for epoch in range(0):#self.model.config.first_train_epoc):
             losses = []
             for sts, tgt, inst_label, ks_label in data:
                 

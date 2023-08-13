@@ -15,7 +15,7 @@ class FractionSACConfig(object):
         self,
         generat_link_number: int = 10,
         sac_batch_size: int = 64,
-        buffer_size: int = int(1e5),
+        buffer_size: int = int(1e6),
         alpha_initial: float = 1.,
         discount_rate: float = 0.99,
         actor_lr: float = 1e-3,
