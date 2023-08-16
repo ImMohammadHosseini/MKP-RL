@@ -21,6 +21,7 @@ class ExternalStatePrepare:
     
     def __init__ (
         self, 
+        info: dict,
         allCapacities: np.ndarray, 
         weights: np.ndarray, 
         values: np.ndarray, 
@@ -31,6 +32,7 @@ class ExternalStatePrepare:
     ) -> None:
         assert len(weights) == len(values)        
         
+        self.info = info
         self.ks_main_data = ks_main_data
         self.instance_main_data = instance_main_data
         
@@ -91,7 +93,6 @@ class ExternalStatePrepare:
     def getObservation1 (self) -> np.ndarray:
         self.stateCaps = np.array([k.getRemainCap() \
                                    for k in self.knapsacks])
-        print(self.stateCaps.shape)
             
         '''ks_sim = cosine_similarity(self.ks_main_data, self.stateCaps, dense_output=False)
         if not (np.diagonal(ks_sim) > .9).all():
@@ -146,7 +147,8 @@ class ExternalStatePrepare:
     def getObservation (self) -> np.ndarray:
         self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
         sw = self.remainInstanceWeights[:self.instanceObsSize]
-        stateWeight = sw
+        stateWeight = sw/self.info['WEIGHT_HIGH']#np.zeros((len(sw),0))
+        
         stateValue = self.remainInstanceValues[:self.instanceObsSize]
         self.ks_order = None
         self.stateCaps = []    
@@ -162,13 +164,13 @@ class ExternalStatePrepare:
         if self.pad_len <= 0:
             self.pad_len = 0
             self.stateWeightValues = np.append(sw, stateValue, axis=1)
-            returnWeightValues = np.append(stateWeight, stateValue, axis=1)
+            returnWeightValues = np.append(stateWeight, stateValue/self.info['VALUE_HIGH'], axis=1)
             self.remainInstanceWeights = self.remainInstanceWeights[self.instanceObsSize:]
             self.remainInstanceValues = self.remainInstanceValues[self.instanceObsSize:]
         else: 
             self.stateWeightValues = self._pad_left(np.append(sw, stateValue, axis=1),
                 np.zeros((1, len(sw[0])+1)) )
-            returnWeightValues = self._pad_left(np.append(stateWeight, stateValue, axis=1),
+            returnWeightValues = self._pad_left(np.append(stateWeight, stateValue/self.info['VALUE_HIGH'], axis=1),
                 np.zeros((1, len(stateWeight[0])+1)) )
             self.remainInstanceWeights = np.zeros((0, self.weights.shape[1]))
             self.remainInstanceValues = np.zeros((0,1))
