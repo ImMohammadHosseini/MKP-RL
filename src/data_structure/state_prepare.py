@@ -34,10 +34,10 @@ class ExternalStatePrepare:
         self.ks_main_data = ks_main_data
         self.instance_main_data = instance_main_data
         
-        inst_sim = cosine_similarity(instance_main_data[:len(weights)], weights, dense_output=False)
-        ks_sim = cosine_similarity(ks_main_data, allCapacities, dense_output=False)
+        #inst_sim = cosine_similarity(instance_main_data[:len(weights)], weights, dense_output=False)
+        #ks_sim = cosine_similarity(ks_main_data, allCapacities, dense_output=False)
         
-        if not (np.diagonal(inst_sim) > .9).all():
+        '''if not (np.diagonal(inst_sim) > .9).all():
             order = [0]*len(weights)
             for _ in range(len(inst_sim)):
                 index = unravel_index(inst_sim.argmax(), inst_sim.shape)
@@ -46,11 +46,11 @@ class ExternalStatePrepare:
                 inst_sim[index[0],:] = 0
             self.weights = weights[order]
             self.values = values[order]
-        else :
-            self.weights = weights
-            self.values = values
+        else :'''
+        self.weights = weights
+        self.values = values
         
-        if not (np.diagonal(ks_sim) > .9).all():
+        '''if not (np.diagonal(ks_sim) > .9).all():
             order = [0]*len(allCapacities)
             for _ in range(len(ks_sim)):
                 index = unravel_index(ks_sim.argmax(), ks_sim.shape)
@@ -58,8 +58,8 @@ class ExternalStatePrepare:
                 ks_sim[:,index[1]] = 0
                 ks_sim[index[0],:] = 0
             self._setKnapsack(allCapacities[order])
-        else :
-            self._setKnapsack(allCapacities)
+        else :'''
+        self._setKnapsack(allCapacities)
 
         if k_obs_size == None: 
             self.knapsackObsSize = len(allCapacities)
@@ -88,13 +88,12 @@ class ExternalStatePrepare:
     def _setKnapsack (self, allCapacities):
         self.knapsacks = [Knapsack(i, c) for i, c in enumerate(allCapacities)]
     
-    def getObservation (self) -> np.ndarray:
-        #EOD = np.array([[2.]*self.dim])
-        #PAD = np.array([[0.]*self.dim])
+    def getObservation1 (self) -> np.ndarray:
         self.stateCaps = np.array([k.getRemainCap() \
                                    for k in self.knapsacks])
+        print(self.stateCaps.shape)
             
-        ks_sim = cosine_similarity(self.ks_main_data, self.stateCaps, dense_output=False)
+        '''ks_sim = cosine_similarity(self.ks_main_data, self.stateCaps, dense_output=False)
         if not (np.diagonal(ks_sim) > .9).all():
             self.ks_order = [0]*len(self.stateCaps)
             for _ in range(len(ks_sim)):
@@ -103,10 +102,11 @@ class ExternalStatePrepare:
                 ks_sim[:,index[1]] = 0
                 ks_sim[index[0],:] = 0
             self.stateCaps = self.stateCaps[self.ks_order]
-        else :self.ks_order = None
+        else :'''
+        self.ks_order = None
         self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps),1)), 
                                    axis=1)
-        inst_sim = cosine_similarity(self.instance_main_data[:len(self.remainInstanceWeights)], 
+        '''inst_sim = cosine_similarity(self.instance_main_data[:len(self.remainInstanceWeights)], 
                                      self.remainInstanceWeights, dense_output=False)
         if not (np.diagonal(inst_sim) > .9).all():
             order = [0]*len(self.remainInstanceWeights)
@@ -116,7 +116,7 @@ class ExternalStatePrepare:
                 inst_sim[:,index[1]] = 0
                 inst_sim[index[0],:] = 0
             self.remainInstanceWeights = self.remainInstanceWeights[order]
-            self.remainInstanceValues = self.remainInstanceValues[order]
+            self.remainInstanceValues = self.remainInstanceValues[order]'''
         
         
         self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
@@ -143,6 +143,38 @@ class ExternalStatePrepare:
         
         return self.stateCaps, self.stateWeightValues
 
+    def getObservation (self) -> np.ndarray:
+        self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
+        sw = self.remainInstanceWeights[:self.instanceObsSize]
+        stateWeight = sw
+        stateValue = self.remainInstanceValues[:self.instanceObsSize]
+        self.ks_order = None
+        self.stateCaps = []    
+        for k in self.knapsacks:
+            self.stateCaps.append(k.getRemainCap())
+            z = self.stateCaps[-1] == 0.0
+            z = float(z) * 1e-8
+            stateWeight = np.append(stateWeight, (sw/(self.stateCaps[-1]+z)),-1)
+            
+        self.stateCaps = np.append(np.array(self.stateCaps), np.zeros((len(self.stateCaps),1)), 
+                                   axis=1)
+        
+        if self.pad_len <= 0:
+            self.pad_len = 0
+            self.stateWeightValues = np.append(sw, stateValue, axis=1)
+            returnWeightValues = np.append(stateWeight, stateValue, axis=1)
+            self.remainInstanceWeights = self.remainInstanceWeights[self.instanceObsSize:]
+            self.remainInstanceValues = self.remainInstanceValues[self.instanceObsSize:]
+        else: 
+            self.stateWeightValues = self._pad_left(np.append(sw, stateValue, axis=1),
+                np.zeros((1, len(sw[0])+1)) )
+            returnWeightValues = self._pad_left(np.append(stateWeight, stateValue, axis=1),
+                np.zeros((1, len(stateWeight[0])+1)) )
+            self.remainInstanceWeights = np.zeros((0, self.weights.shape[1]))
+            self.remainInstanceValues = np.zeros((0,1))
+        
+        return self.stateCaps, returnWeightValues
+    
     def _pad_left(
         self,
         sequence: np.ndarray, 
@@ -174,7 +206,11 @@ class ExternalStatePrepare:
         return self.stateWeightValues[index][-1]
     
     def is_terminated (self):
-        return True if len(self.remainInstanceWeights) == 0 else False
+        caps = np.array([k.getRemainCap() for k in self.knapsacks])
+        terminated = ~np.array([(cap*(1/self.remainInstanceWeights)>=1).all(
+            1).any() for cap in caps]).any()
+        return True if len(self.remainInstanceWeights) == 0  or terminated \
+            else False
     
     def changeNextState (self, acts):
         deleteList = []
