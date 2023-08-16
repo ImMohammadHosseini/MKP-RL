@@ -87,7 +87,7 @@ def dataInitializer ():
             #np.savetxt(MAIN_DATA+'instances.csv', instance_main_data, delimiter=",")
             #np.savetxt(MAIN_DATA+'ks.csv', ks_main_data, delimiter=",")
 
-        statePrepare = ExternalStatePrepare(c, w, v, ks_main_data, instance_main_data, 
+        statePrepare = ExternalStatePrepare(INFOS, c, w, v, ks_main_data, instance_main_data, 
                                             KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE)
         
         #statePrepare.normalizeData(INFOS['CAP_HIGH'], INFOS['VALUE_HIGH'])
@@ -149,7 +149,8 @@ def encoderMlpPPOInitializer ():
     ppoConfig = PPOConfig()
     modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
                                             opts.dim)
-    actorModel = EncoderMLPKnapsack(modelConfig, DEVICE)
+    #actorModel = RNNMLPKnapsack(modelConfig, DEVICE)
+    actorModel = EncoderMLPKnapsack (modelConfig, DEVICE)
     criticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
 
     externalCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
@@ -477,6 +478,7 @@ def encoderMLP_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
     best_reward = -1e4
     reward_history = []; score_history = []; remain_cap_history = []
     n_steps = 0
+    n_steps1 = 0
     for i in tqdm(range(N_TRAIN_STEPS)):
         batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, MAIN_BATCH_SIZE)
         for batch in batchs:
@@ -486,16 +488,25 @@ def encoderMLP_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
             done = False
             episodeInternalReward = torch.tensor (0.0)
             while not done:
-                #print(externalObservation.size())
+                #print(externalObservation[0])
                 action, accepted_action, prob, value, internalReward = ppoTrainer.make_steps(
                         externalObservation, env.statePrepares)
+                #print(externalObservation)
+                #print(accepted_action)
                 episodeInternalReward += internalReward.sum().cpu()
                 externalObservation_, externalReward, done, info = env.step(accepted_action)
                 ppoTrainer.save_step (externalObservation, action, prob, value, 
                                       internalReward, done)
+                
                 n_steps += 1
                 if n_steps % ppoTrainer.config.internal_batch == 0:
-                    ppoTrainer.train_minibatch()
+                    ppoTrainer.train_minibatch('int')
+                if ~(accepted_action == [-1,-1]).all():
+                    n_steps1 +=1
+                    ppoTrainer.save_ext_step (externalObservation, action, prob, value, 
+                                              torch.tensor(externalReward), done)   
+                    if n_steps1 % ppoTrainer.config.external_batch == 0:
+                        ppoTrainer.train_minibatch('ext')
                 externalObservation = externalObservation_
                 
             scores, remain_cap_ratios = env.final_score()
