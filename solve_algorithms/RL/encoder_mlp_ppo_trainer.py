@@ -71,7 +71,7 @@ class EncoderMlpPPOTrainer(BaseTrainer):
         else:
             self.external_critic_model = external_critic_model
             
-        self.savePath = save_path +'/RL/FractionPPOTrainer/'
+        self.savePath = save_path +'/RL/EncoderMlpPPOTrainer/'
         if path.exists(self.savePath):
             self.load_models()
             self.pretrain_need = False
@@ -79,6 +79,7 @@ class EncoderMlpPPOTrainer(BaseTrainer):
             
         
         self._reset_memory()
+        self._reset_ext_memory()
         
     def _reset_memory (self) :
         self.memory_observation = [] 
@@ -103,6 +104,30 @@ class EncoderMlpPPOTrainer(BaseTrainer):
         self.memory_val.append(values.data.cpu())
         self.memory_internalReward.append(internalRewards.cpu())
         self.memory_done.append(torch.tensor([[done]]*self.main_batch_size))
+    
+    def _reset_ext_memory (self) :
+        self.memory_ext_observation = [] 
+        self.memory_ext_action = [] 
+        self.memory_ext_prob = [] 
+        self.memory_ext_val = []
+        self.memory_ext_internalReward = []
+        self.memory_ext_done = []
+        
+    def save_ext_step (
+        self, 
+        externalObservation: torch.tensor,
+        actions: torch.tensor,
+        probs: torch.tensor,
+        values: torch.tensor, 
+        internalRewards: torch.tensor,
+        done: bool,
+    ):
+        self.memory_ext_observation.append(torch.cat([externalObservation.unsqueeze(1)]*10, 1).cpu())
+        self.memory_ext_action.append(actions.data.cpu())
+        self.memory_ext_prob.append(probs.data.cpu())
+        self.memory_ext_val.append(values.data.cpu())
+        self.memory_ext_internalReward.append(internalRewards.cpu())
+        self.memory_ext_done.append(torch.tensor([[done]]*self.main_batch_size))
         
     def _choose_actions (
         self, 
@@ -138,16 +163,16 @@ class EncoderMlpPPOTrainer(BaseTrainer):
             value = statePrepares[index].getObservedInstValue(inst_act)
 
             if inst_act < statePrepares[index].pad_len: 
-                    rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
+                    rewards.append(0)#-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
             
             if all(eCap >= weight):
-                rewards.append(+(value / np.sum(weight)))
+                rewards.append(+(value/ np.sum(weight)))
                 knapSack.removeExpectedCap(weight)
                 accepted_action[index] = np.append(accepted_action[index][1:],
                                                    [[inst_act, ks_act]], 0)
             else:
-                rewards.append(-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
+                rewards.append(0)#-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
         #print(rewards)
         return torch.tensor(rewards, device=self.device).unsqueeze(0)
     
@@ -166,16 +191,29 @@ class EncoderMlpPPOTrainer(BaseTrainer):
     
     def train_minibatch (
         self, 
+        mode = 'int'
     ):
-        memoryObs = torch.cat(self.memory_observation, 1)
-        memoryAct = torch.cat(self.memory_action, 1) 
-        memoryPrb = torch.cat(self.memory_prob, 1)
-        memoryVal = torch.cat(self.memory_val, 1)
-        memoryRwd = torch.cat(self.memory_internalReward, 1)
-        memoryDon = torch.cat(self.memory_done, 1)
+        if mode == 'int':
+            n_state = self.config.internal_batch
+            batch_size = self.config.ppo_int_batch_size
+            memoryObs = torch.cat(self.memory_observation, 1)
+            memoryAct = torch.cat(self.memory_action, 1) 
+            memoryPrb = torch.cat(self.memory_prob, 1)
+            memoryVal = torch.cat(self.memory_val, 1)
+            memoryRwd = torch.cat(self.memory_internalReward, 1)
+            memoryDon = torch.cat(self.memory_done, 1)
+        elif mode == 'ext':
+            n_state = self.config.external_batch
+            batch_size = self.config.ppo_ext_batch_size
+            memoryObs = torch.cat(self.memory_ext_observation, 1)
+            memoryAct = torch.cat(self.memory_ext_action, 1) 
+            memoryPrb = torch.cat(self.memory_ext_prob, 1)
+            memoryVal = torch.cat(self.memory_ext_val, 1)
+            memoryRwd = torch.cat(self.memory_ext_internalReward, 1)
+            memoryDon = torch.cat(self.memory_ext_done, 1)
         
         for _ in range(self.config.ppo_epochs):
-            batches = self.generate_batch()
+            batches = self.generate_batch(n_state, batch_size)
             
             for index in range(self.main_batch_size):
                 obs = memoryObs[index].squeeze()
@@ -230,7 +268,7 @@ class EncoderMlpPPOTrainer(BaseTrainer):
                     critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
                     entropy_loss_leaf = Variable(entropy_loss.data, requires_grad=True)
 
-                    total_loss = actor_loss_leaf + 0.5*critic_loss_leaf + 0.1*entropy_loss_leaf
+                    total_loss = actor_loss_leaf + 0.5*critic_loss_leaf# + 0.1*entropy_loss_leaf
                     
                     self.actor_optimizer.zero_grad()
                     self.critic_optimizer.zero_grad()
@@ -243,8 +281,9 @@ class EncoderMlpPPOTrainer(BaseTrainer):
                     #self.critic_optimizer.zero_grad()
                     #critic_loss_leaf.backward()#retain_graph=True
                     self.critic_optimizer.step()
-                    
-        self._reset_memory()
+        
+        self._reset_memory() if mode == 'int' else self._reset_ext_memory()
+
                     
                     
     def external_train (
