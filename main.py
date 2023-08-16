@@ -30,7 +30,7 @@ from solve_algorithms.RL.fraction_ppo_trainer import FractionPPOTrainer
 from solve_algorithms.RL.one_generate_fraction_ppo_trainer import OneGenerateFractionPPOTrainer
 from solve_algorithms.RL.fraction_sac_trainer import FractionSACTrainer
 from solve_algorithms.RL.encoder_mlp_ppo_trainer import EncoderMlpPPOTrainer
-
+from solve_algorithms.RL.encoder_mlp_sac_trainer import EncoderMlpSACTrainer
 usage = "usage: python main.py -V <variation> -M <knapsaks> -N <instances>"
 
 parser = optparse.OptionParser(usage=usage)
@@ -41,7 +41,7 @@ parser.add_option("-V", "--variation", action="store", dest="var",
 parser.add_option("-D", "--dim", action="store", dest="dim", default=1)
 parser.add_option("-K", "--knapsaks", action="store", dest="kps", default=2)
 parser.add_option("-N", "--instances", action="store", dest="instances", 
-                  default=10)
+                  default=15)
 parser.add_option("-M", "--mode", action="store", dest="mode", 
                   default='train')
 opts, args = parser.parse_args()
@@ -59,7 +59,7 @@ INSTANCE_OBS_SIZE = opts.instances#2 * KNAPSACK_OBS_SIZE
 MAIN_BATCH_SIZE = 1
 NO_CHANGE_LONG = 5#*BATCH_SIZE#int(1/8*(opts.instances // INSTANCE_OBS_SIZE))
 PROBLEMS_NUM = 1*MAIN_BATCH_SIZE
-N_TRAIN_STEPS = 100000
+N_TRAIN_STEPS = 10000
 #NEW_PROBLEM_PER_EPISODE = 10
 N_TEST_STEPS = 10
 SAVE_PATH = 'pretrained/save_models'
@@ -149,7 +149,7 @@ def encoderMlpPPOInitializer ():
     ppoConfig = PPOConfig()
     modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
                                             opts.dim)
-    actorModel = RNNMLPKnapsack(modelConfig, DEVICE)
+    actorModel = EncoderMLPKnapsack(modelConfig, DEVICE)
     criticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
 
     externalCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
@@ -160,6 +160,7 @@ def encoderMlpPPOInitializer ():
                                       actorModel, criticModel, externalCriticModel,
                                       DEVICE)
     return env, ppoTrainer
+
 
 def ppoInitializer ():
     ppoConfig = PPOConfig()
@@ -205,7 +206,24 @@ def fractionSACInitializer ():
                             DEVICE)
     return env, sacTrainer
     
+def encoderMlpSACInitializer ():
+    sacConfig = FractionSACConfig()
+    modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
+                                            opts.dim)
+    actorModel = RNNMLPKnapsack(modelConfig, DEVICE)
     
+    criticLocal1 = RNNMLPKnapsack(modelConfig, device=DEVICE, name = 'criticLocal1')
+    criticLocal2 = RNNMLPKnapsack(modelConfig, device=DEVICE, name = 'criticLocal2')
+    criticTarget1 = RNNMLPKnapsack(modelConfig, device=DEVICE, name = 'criticTarget1')
+    criticTarget2 = RNNMLPKnapsack(modelConfig, device=DEVICE, name = 'criticTarget2')
+    
+    env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
+                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE, DEVICE)
+    
+    sacTrainer = EncoderMlpSACTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, sacConfig, actorModel, 
+                                      criticLocal1, criticLocal2, criticTarget1, criticTarget2, 
+                                      DEVICE)
+    return env, sacTrainer 
                        
 def plot_learning_curve(x, scores, figure_file, title, label):#TODO delete method
     running_avg = np.zeros(len(scores))
@@ -394,12 +412,70 @@ def fraction_sac_train (env, sacTrainer, statePrepareList, greedyScores):
     title = 'Running average of previous 50 remain caps'
     plot_learning_curve(x, remain_cap_history, figure_file, title)
     
+def encoderMLP_sac_train (env, sacTrainer, statePrepareList, greedyScores):
+    statePrepares = np.array(statePrepareList)
+    greedyScores = np.array(greedyScores)
+    best_reward = -1e4
+    reward_history = []; score_history = []; remain_cap_history = []
+    n_steps = 0
+    for i in tqdm(range(N_TRAIN_STEPS)):
+        #batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, BATCH_SIZE)
+        batchs = [np.array([0])]
+        for batch in batchs:
+            env.setStatePrepare(statePrepares[batch])
+            
+            externalObservation, _ = env.reset()
+            done = False
+            episodeInternalReward = torch.tensor (0.0)
+            while not done:
+                action, accepted_actions, internalReward = sacTrainer.make_steps(
+                    externalObservation, env.statePrepares)
+                episodeInternalReward += internalReward.sum().cpu()
+                externalObservation_, externalReward, done, info = env.step(accepted_actions)
+                sacTrainer.save_step (externalObservation, action, internalReward, 
+                                      externalObservation_, done)
+                n_steps += 1
+                if n_steps % sacTrainer.config.internal_batch == 0:
+                    sacTrainer.train()
+                externalObservation = externalObservation_
+                
+            scores, remain_cap_ratios = env.final_score()
+            batch_score_per_grredy = np.mean([s/gs for s,gs in zip(scores, greedyScores[batch])])
+            
+            reward_history.append(float(episodeInternalReward))
+            score_history.append(batch_score_per_grredy)
+            remain_cap_history.append(np.mean(remain_cap_ratios))
+            avg_reward = np.mean(reward_history[-50:])
+            avg_score = np.mean(score_history[-50:])
+
+            if avg_reward > best_reward:
+                best_reward  = avg_reward
+                sacTrainer.save_models()
+            print('episode', i, 'score %.3f' % batch_score_per_grredy, 'avg score %.2f' % avg_score,
+                  'time_steps', n_steps, 'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios),
+                  'interanl_reward %.3f'%float(episodeInternalReward), 'avg reward %.3f' %avg_reward)
+    
+    x = [i+1 for i in range(len(reward_history))]
+    figure_file = 'plots/encoderMLP_sac_reward.png'
+    title = 'Running average of previous 50 scores'
+    plot_learning_curve(x, reward_history, figure_file, title)#TODO add visualization
+            
+    x = [i+1 for i in range(len(score_history))]
+    figure_file = 'plots/encoderMLP_sac_score_per_greedyScore.png'
+    title = 'Running average of previous 50 scores'
+    plot_learning_curve(x, score_history, figure_file, title)#TODO add visualization
+    
+    x = [i+1 for i in range(len(remain_cap_history))]
+    figure_file = 'plots/encoderMLP_sac_remain_cap_ratio.png'
+    title = 'Running average of previous 50 remain caps'
+    plot_learning_curve(x, remain_cap_history, figure_file, title)
+    
 def encoderMLP_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
     statePrepares = np.array(statePrepareList)
     
     greedyScores = np.array(greedyScores)
-    best_score = .8
-    score_history = []; remain_cap_history = []
+    best_reward = -1e4
+    reward_history = []; score_history = []; remain_cap_history = []
     n_steps = 0
     for i in tqdm(range(N_TRAIN_STEPS)):
         batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, MAIN_BATCH_SIZE)
@@ -410,6 +486,7 @@ def encoderMLP_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
             done = False
             episodeInternalReward = torch.tensor (0.0)
             while not done:
+                #print(externalObservation.size())
                 action, accepted_action, prob, value, internalReward = ppoTrainer.make_steps(
                         externalObservation, env.statePrepares)
                 episodeInternalReward += internalReward.sum().cpu()
@@ -423,26 +500,35 @@ def encoderMLP_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
                 
             scores, remain_cap_ratios = env.final_score()
             batch_score_per_grredy = np.mean([s/gs for s,gs in zip(scores, greedyScores[batch])])
-
+            
+            reward_history.append(float(episodeInternalReward))
             score_history.append(batch_score_per_grredy)
             remain_cap_history.append(np.mean(remain_cap_ratios))
+            avg_reward = np.mean(reward_history[-50:])
             avg_score = np.mean(score_history[-50:])
 
-            if avg_score > best_score:
-                best_score = avg_score
+            if avg_reward > best_reward:
+                best_reward  = avg_reward
                 ppoTrainer.save_models()
             print('episode', i, 'score %.3f' % batch_score_per_grredy, 'avg score %.2f' % avg_score,
                   'time_steps', n_steps, 'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios),
-                  'interanl_reward', float(episodeInternalReward))
+                  'interanl_reward %.3f'%float(episodeInternalReward), 'avg reward %.3f' %avg_reward)
+    
+    x = [i+1 for i in range(len(reward_history))]
+    figure_file = 'plots/encoderMLP_ppo_reward.png'
+    title = 'Running average of previous 50 scores'
+    label = 'scores'
+    plot_learning_curve(x, reward_history, figure_file, title, label)#TODO add visualization
+    
     
     x = [i+1 for i in range(len(score_history))]
-    figure_file = 'plots/fraction_ppo_score_per_greedyScore.png'
+    figure_file = 'plots/encoderMLP_ppo_score_per_greedyScore.png'
     title = 'Running average of previous 50 scores'
     label = 'scores'
     plot_learning_curve(x, score_history, figure_file, title, label)#TODO add visualization
     
     x = [i+1 for i in range(len(remain_cap_history))]
-    figure_file = 'plots/fraction_ppo_remain_cap_ratio.png'
+    figure_file = 'plots/encoderMLP_ppo_remain_cap_ratio.png'
     title = 'Running average of previous 50 remain caps'
     label = 'remain caps'
     plot_learning_curve(x, remain_cap_history, figure_file, title, label)
@@ -452,8 +538,11 @@ if __name__ == '__main__':
     statePrepareList = dataInitializer()
     greedyScores = greedyAlgorithm(statePrepareList)
     
-    #env, ppoTrainer = fractionSACInitializer()
+    #env, sacTrainer = fractionSACInitializer()
     #fraction_sac_train(env, ppoTrainer, statePrepareList, greedyScores)
+    
+    #env, sacTrainer = encoderMlpSACInitializer()
+    #encoderMLP_sac_train (env, sacTrainer, statePrepareList, greedyScores)
     
     env, ppoTrainer = encoderMlpPPOInitializer()
     encoderMLP_ppo_train(env, ppoTrainer, statePrepareList, greedyScores)
