@@ -47,7 +47,7 @@ class Knapsack:
         return ratio
     
     def getValues (self) -> int:
-        return np.sum(self.instanceValue)
+        return np.sum(self.instanceValues)
     
     def getCap (self):
         return self.capacities
