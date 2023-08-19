@@ -141,9 +141,9 @@ class EncoderMlpPPOTrainer(BaseTrainer):
             
             acts = torch.cat([acts, act.unsqueeze(0).unsqueeze(0).cpu()], dim=0)
             log_probs = torch.cat([log_probs, act_dist.log_prob(act).unsqueeze(0).unsqueeze(0).cpu()], dim=0)
-
         return acts, log_probs
-
+    
+    
     def internal_reward (
         self,
         action: torch.tensor,
@@ -153,15 +153,15 @@ class EncoderMlpPPOTrainer(BaseTrainer):
         rewards = []
         for index, act in enumerate(action):
             #print(act)
-            inst_act = int(act % self.actor_model.config.inst_obs_size) 
+            inst_act = int(act / self.actor_model.config.knapsack_obs_size) 
             ks_act = statePrepares[index].getRealKsAct(int(
-                act // self.actor_model.config.inst_obs_size))
+                act % self.actor_model.config.knapsack_obs_size))
             knapSack = statePrepares[index].getKnapsack(ks_act)
             
             eCap = knapSack.getExpectedCap()
             weight = statePrepares[index].getObservedInstWeight(inst_act)
             value = statePrepares[index].getObservedInstValue(inst_act)
-
+            
             if inst_act < statePrepares[index].pad_len: 
                     rewards.append(0)#-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
@@ -269,7 +269,7 @@ class EncoderMlpPPOTrainer(BaseTrainer):
                     entropy_loss_leaf = Variable(entropy_loss.data, requires_grad=True)
 
                     total_loss = actor_loss_leaf + 0.5*critic_loss_leaf# + 0.1*entropy_loss_leaf
-                    
+
                     self.actor_optimizer.zero_grad()
                     self.critic_optimizer.zero_grad()
 
