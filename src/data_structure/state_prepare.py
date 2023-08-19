@@ -144,11 +144,11 @@ class ExternalStatePrepare:
         
         return self.stateCaps, self.stateWeightValues
 
-    def getObservation (self) -> np.ndarray:
+    def getObservation2 (self) -> np.ndarray:
         self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
         sw = self.remainInstanceWeights[:self.instanceObsSize]
         stateWeight = sw/self.info['WEIGHT_HIGH']#np.zeros((len(sw),0))
-        
+
         stateValue = self.remainInstanceValues[:self.instanceObsSize]
         self.ks_order = None
         self.stateCaps = []    
@@ -177,13 +177,97 @@ class ExternalStatePrepare:
         
         return self.stateCaps, returnWeightValues
     
+    def getObservation3 (self) -> np.ndarray:
+        self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
+        sw = self.remainInstanceWeights[:self.instanceObsSize]
+
+        stateValue = self.remainInstanceValues[:self.instanceObsSize]
+        
+        valueRatio = stateValue/np.expand_dims(np.sum(sw,1),1)
+        self.ks_order = None
+        self.stateCaps = []
+        stateCap = np.zeros((0,2*sw.shape[1]+2))
+        stateWeight = np.zeros((0,2*sw.shape[1]+2))#sw/self.info['CAP_HIGH']
+
+        for k in self.knapsacks:
+            self.stateCaps.append(k.getRemainCap())
+            
+            stateCap = np.append(stateCap, np.append(np.array([self.stateCaps[-1]/self.info['CAP_HIGH']]*len(sw)),
+                                                     np.append(np.array((self.stateCaps[-1]-sw)/self.info['CAP_HIGH']),
+                                                               np.append(np.expand_dims(np.array([k.score_ratio()]*len(sw)),1),
+                                                                         valueRatio,1),1),1),0)
+            z = self.stateCaps[-1] == 0.0
+            z = float(z) * 1e-8
+            stateWeight = np.append(stateWeight, np.append(sw/self.info['WEIGHT_HIGH'], 
+                                                           np.append(sw/(self.stateCaps[-1]+z), 
+                                                           np.append(np.expand_dims(np.array([k.score_ratio()]*len(sw)),1),
+                                                                     valueRatio,1),1),1),0)
+        self.stateCaps = np.array(self.stateCaps)
+
+        if self.pad_len <= 0:
+            self.pad_len = 0
+            self.stateWeightValues = np.append(sw, stateValue, axis=1)
+            returnWeightValues = stateWeight
+            self.remainInstanceWeights = self.remainInstanceWeights[self.instanceObsSize:]
+            self.remainInstanceValues = self.remainInstanceValues[self.instanceObsSize:]
+        else: 
+            self.stateWeightValues = self._pad_left(np.append(sw, stateValue, axis=1),
+                np.zeros((1, len(sw[0])+1)), self.pad_len)
+            returnWeightValues = self._pad_left(stateWeight, np.zeros((1, len(stateWeight[0]))),
+                                                self.pad_len*4)
+            self.remainInstanceWeights = np.zeros((0, self.weights.shape[1]))
+            self.remainInstanceValues = np.zeros((0,1))
+        
+        return stateCap, returnWeightValues
+    
+    def getObservation (self) -> np.ndarray:
+        self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
+        sw = self.remainInstanceWeights[:self.instanceObsSize]
+        stateValue = self.remainInstanceValues[:self.instanceObsSize]
+        valueRatio = stateValue/np.expand_dims(np.sum(sw,1),1)
+        #print(np.expand_dims(np.sum(sw,1),1))      
+        self.ks_order = None
+        self.stateCaps = []
+        returnCap = []
+        for k in self.knapsacks:
+            returnCap.append(np.append(np.append(k.getCap()/self.info['CAP_HIGH'], 
+                                                      k.getRemainCap()/self.info['CAP_HIGH'],0),
+                                            np.append(np.expand_dims(np.array(k.score_ratio()),0),
+                                                      np.expand_dims(np.array(k.getValues()/np.sum(k.getCap()))
+                                                                     ,0),0),0))
+            self.stateCaps.append(k.getRemainCap())
+        self.stateCaps = np.array(self.stateCaps)
+        returnCap = np.array(returnCap)
+        
+        sum_ks = np.sum(self.stateCaps, 0)
+        z = sum_ks == 0.0
+        z = float(z) * 1e-8
+        returnWeightValues = np.append(np.append(sw/self.info['CAP_HIGH'], sw/(sum_ks+z),1),
+                                       np.append(valueRatio,stateValue/self.info['VALUE_HIGH'],1),1)
+        
+        if self.pad_len <= 0:
+            self.pad_len = 0
+            self.stateWeightValues = np.append(sw, stateValue, axis=1)
+            self.remainInstanceWeights = self.remainInstanceWeights[self.instanceObsSize:]
+            self.remainInstanceValues = self.remainInstanceValues[self.instanceObsSize:]
+        else: 
+            self.stateWeightValues = self._pad_left(np.append(sw, stateValue, axis=1),
+                np.zeros((1, len(sw[0])+1)), self.pad_len)
+            returnWeightValues = self._pad_left(returnWeightValues, np.zeros((1, len(returnWeightValues[0]))),
+                                                self.pad_len)
+            self.remainInstanceWeights = np.zeros((0, self.weights.shape[1]))
+            self.remainInstanceValues = np.zeros((0,1))
+  
+        return returnCap, returnWeightValues
+        
     def _pad_left(
         self,
         sequence: np.ndarray, 
         padding_token: np.ndarray,
+        length: int,
     ):
         #self.statePrepare.pad_len = final_length - len(sequence)
-        return np.append(np.repeat(padding_token, self.pad_len, axis=0), 
+        return np.append(np.repeat(padding_token, length, axis=0), 
                          sequence, axis=0)
     
     def getRealKsAct (self, index):
@@ -238,7 +322,7 @@ class ExternalStatePrepare:
             deleteList.append(inst_act)
         #print(len(deleteList))
         #print('len dd', len(self.stateWeightValues))
-
+        
         self.stateWeightValues = np.delete(self.stateWeightValues, 
                                            deleteList, axis=0)
         self.stateWeightValues = self.stateWeightValues[self.pad_len:]
