@@ -21,8 +21,7 @@ class KnapsackAssignmentEnv (gym.Env):
         device = "cpu",
     ):
         self.dim = dim
-        
-        self.observation_space = spaces.Dict(
+        '''self.observation_space = spaces.Dict(
             {
                 "knapsack": spaces.Box(low=np.array(
                     [[[info['CAP_LOW'], info['CAP_LOW'], info['CAP_LOW'], 
@@ -50,7 +49,7 @@ class KnapsackAssignmentEnv (gym.Env):
                                                        instanceObsSize]] * \
                                                      knapsackObsSize), 
                                        dtype=int
-        )
+        )'''
         
         super().__init__()
         self.device = device
@@ -67,13 +66,16 @@ class KnapsackAssignmentEnv (gym.Env):
         self.statePrepares = stateDataClasses
         
     def _get_obs (self) -> dict:
-        batchCaps = np.zeros((0,self.knapsackObsSize,6)); 
-        batchWeightValues = np.zeros((0,self.instanceObsSize,6))
+        '''batchCaps = np.zeros((0,30,4)); 
+        batchWeightValues = np.zeros((0,30,4))
         for statePrepare in self.statePrepares:
             stateCaps, stateWeightValues = statePrepare.getObservation()
             batchCaps = np.append(batchCaps, np.expand_dims(stateCaps, 0), 0) 
             batchWeightValues = np.append(batchWeightValues, 
-                                          np.expand_dims(stateWeightValues, 0), 0)
+                                          np.expand_dims(stateWeightValues, 0), 0)'''
+        stateCaps, stateWeightValues = self.statePrepares[0].getObservation()
+        batchCaps = np.expand_dims(stateCaps, 0)
+        batchWeightValues = np.expand_dims(stateWeightValues, 0)
         return {"knapsack": batchCaps, "instance_value":batchWeightValues}
         
     def _get_info (self):
@@ -84,15 +86,14 @@ class KnapsackAssignmentEnv (gym.Env):
         self.no_change = 0
         for statePrepare in self.statePrepares: statePrepare.reset()
         externalObservation = self._get_obs()
-        SOD = np.array([1.]*self.dim)
-        EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
+        SOD = np.array([1.]*4)
+        EOD = np.array([[[2.]*4]]*self.main_batch_size)
 
         shape = externalObservation["instance_value"].shape
         sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))
         for index in range(self.main_batch_size):
            sod_instance_value[index] = np.insert(externalObservation[
                "instance_value"][index], self.statePrepares[index].pad_len, SOD, axis=0)
-
         
         externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
                                             np.append(externalObservation["knapsack"], 
@@ -104,6 +105,7 @@ class KnapsackAssignmentEnv (gym.Env):
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device)#.unsqueeze(dim=0)
+        #print(externalObservation.size())
         return externalObservation, info
     
     def step (self, step_actions):
@@ -118,7 +120,7 @@ class KnapsackAssignmentEnv (gym.Env):
                 step_actions[index][invalid_action_end_index+1:]))               
             terminated = terminated or self.statePrepares[index].is_terminated()
         
-        terminated = terminated or self.no_change >= self.no_change_long
+        #terminated = terminated or self.no_change >= self.no_change_long
         
         info = self._get_info()
 
@@ -136,15 +138,17 @@ class KnapsackAssignmentEnv (gym.Env):
                "instance_value"][index], self.statePrepares[index].pad_len, SOD, axis=0)
 
         
-        externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
+        externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1),
                                             np.append(externalObservation["knapsack"], 
-                                             EOD, axis=1),axis=1)
+                                                      EOD, axis=1),axis=1)
         #externalObservation = np.append(externalObservation["instance_value"], 
         #                                externalObservation["knapsack"], axis=1)
         #print(externalObservation)
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device)
+        #print(externalObservation.size())
+
         
         return externalObservation, externalRewards, terminated, info
     
