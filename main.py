@@ -63,35 +63,47 @@ N_TRAIN_STEPS = 10000
 #NEW_PROBLEM_PER_EPISODE = 10
 N_TEST_STEPS = 10
 SAVE_PATH = 'pretrained/save_models'
-MAIN_DATA = 'dataset/'
-ALGORITHMS_NAME = ['PPOTrainer', 'FractionPPOTrainer' 'A2C', 
-                   'RandomSelect', 'GreedySelect']
+DATA_PATH = 'dataset/'
+
+PPO_ALGORITHMS = ['PPOTrainer', 'FractionPPOTrainer', 'WholePPOTrainer']
+PPO_ALGORITHMS = ['SACTrainer', 'FractionSACTrainer']
+OTHER_ALGORITHMS = ['RandomSelect', 'GreedySelect']
+INPUT_TYPES = ['type_1']
+OUTPUT_TYPES = ['type_1', 'type_2', 'type_3']
+ACTOR_MODEL_TYPES = ['Encoder_MLP', 'Transformer']
+CRITIC_MODEL_TYPES = ['MLP']
+TRAIN_PROCESS = ['normal_train', 'extra_train']
 
 def dataInitializer ():
     statePrepareList = []
-    if path.exists(MAIN_DATA):
-        instance_main_data = genfromtxt(MAIN_DATA+'instances.csv', delimiter=',')
-        ks_main_data = genfromtxt(MAIN_DATA+'ks.csv', delimiter=',')
-    for _ in range(PROBLEMS_NUM):
-        if opts.var == 'multipleKnapsack':
-            c, w, v = multipleKnapSackData(opts.kps, opts.instances, INFOS)
-        elif opts.var == 'multipleKnapsack':
-            pass
-        elif opts.var == 'multiObjectiveDimentional':
-            c, w, v = multiObjectiveDimentional(opts.dim, opts.kps, opts.instances, INFOS)
+    if path.exists(DATA_PATH):
+        instance_main_data = genfromtxt(DATA_PATH+'instances.csv', delimiter=',')
+        w = instance_main_data[:,:-1]
+        v = np.expand_dims(instance_main_data[:,-1],1)
+        ks_main_data = genfromtxt(DATA_PATH+'ks.csv', delimiter=',')
+        c = ks_main_data[:,:-1]
+    else:
+        for _ in range(PROBLEMS_NUM):
+            if opts.var == 'multipleKnapsack':
+                c, w, v = multipleKnapSackData(opts.kps, opts.instances, INFOS)
+            elif opts.var == 'multipleKnapsack':
+                pass
+            elif opts.var == 'multiObjectiveDimentional':
+                c, w, v = multiObjectiveDimentional(opts.dim, opts.kps, opts.instances, INFOS)
         
-        if not path.exists(MAIN_DATA):
-            instance_main_data = w
-            ks_main_data = c
-            #makedirs(MAIN_DATA)
-            #np.savetxt(MAIN_DATA+'instances.csv', instance_main_data, delimiter=",")
-            #np.savetxt(MAIN_DATA+'ks.csv', ks_main_data, delimiter=",")
+    if not path.exists(DATA_PATH):
+        instance_main_data = np.append(w,v,1)
+        ks_main_data = np.append(c, np.zeros((c.shape[0],1)),1)
+        makedirs(DATA_PATH)
+        np.savetxt(DATA_PATH+'instances.csv', instance_main_data, delimiter=",")
+        np.savetxt(DATA_PATH+'ks.csv', ks_main_data, delimiter=",")
 
-        statePrepare = ExternalStatePrepare(INFOS, c, w, v, ks_main_data, instance_main_data, 
-                                            KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE)
-        
-        #statePrepare.normalizeData(INFOS['CAP_HIGH'], INFOS['VALUE_HIGH'])
-        statePrepareList.append(statePrepare)            
+    statePrepare = ExternalStatePrepare(INFOS, c, w, v, ks_main_data[:,:-1], 
+                                        instance_main_data[:,:-1], 
+                                        KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE)
+    
+    #statePrepare.normalizeData(INFOS['CAP_HIGH'], INFOS['VALUE_HIGH'])
+    statePrepareList.append(statePrepare)            
     return statePrepareList
 
 def randomAlgorithm (statePrepare):
@@ -112,72 +124,34 @@ def greedyAlgorithm (statePrepareList):
         greedyScores.append(bestScore)
     return greedyScores
 
-def fractionPPOInitializer ():
-    ppoConfig = PPOConfig()
+def ppoInitializer (output_type, algorithm_type, train_process):
+    ppoConfig = PPOConfig(generat_link_number=1) if algorithm_type == 'PPOTrainer' else PPOConfig()
     modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
-                                            opts.dim)
-    actorModel = OneGenerateTransformerKnapsack(modelConfig, ppoConfig.generat_link_number, DEVICE)
-
-    criticModel = CriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim,
-                                (ppoConfig.generat_link_number+1), modelConfig.input_decode_dim)
-    externalCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
-    env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
-                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE, DEVICE)
-    
-    ppoTrainer = FractionPPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
-                                    actorModel, criticModel, externalCriticModel,
-                                    DEVICE)
-    return env, ppoTrainer
-
-def oneGenerateFractionPPOInitializer ():
-    ppoConfig = PPOConfig()
-    modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
-                                            opts.dim)
-    actorModel = OneGenerateTransformerKnapsack(modelConfig, ppoConfig.generat_link_number, DEVICE)
-    criticModel = CriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim,
-                                (ppoConfig.generat_link_number+1), modelConfig.input_decode_dim)
-    externalCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
-    env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
-                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE, DEVICE)
-    
-    ppoTrainer = OneGenerateFractionPPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
-                                    actorModel, criticModel, externalCriticModel,
-                                    DEVICE)
-    return env, ppoTrainer
-
-def encoderMlpPPOInitializer ():
-    ppoConfig = PPOConfig()
-    modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
-                                            opts.dim)
-    #actorModel = RNNMLPKnapsack(modelConfig, DEVICE)
-    actorModel = EncoderMLPKnapsack (modelConfig, DEVICE)
-    criticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
-
-    externalCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
-    env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
-                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE, DEVICE)
-    
-    ppoTrainer = EncoderMlpPPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
-                                      actorModel, criticModel, externalCriticModel,
-                                      DEVICE)
-    return env, ppoTrainer
-
-
-def ppoInitializer ():
-    ppoConfig = PPOConfig()
-    modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
-                                            opts.dim)
-    actorModel = TransformerKnapsack(modelConfig, ppoConfig.generat_link_number, DEVICE)#EncoderMLPKnapsack
-
-    criticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim)
+                                            opts.dim, DEVICE, ppoConfig.generat_link_number)
     
     env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
-                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE, DEVICE)
-    ppoTrainer = PPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, actorModel, 
-                            criticModel, DEVICE)
+                                KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE)
+    normalCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim, name='normalCriticModel')
+    extraCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim, name='extraCriticModel')
     
+    if algorithm_type == 'PPOTrainer':
+        actorModel = EncoderMLPKnapsack(modelConfig, output_type, device=DEVICE)
+        ppoTrainer = EncoderMlpPPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
+                                          actorModel, normalCriticModel, extraCriticModel,
+                                          DEVICE)
+        
+    elif algorithm_type == 'FractionPPOTrainer':
+        actorModel = TransformerKnapsack(modelConfig, output_type, device=DEVICE)
+        ppoTrainer = FractionPPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
+                                        actorModel, normalCriticModel, extraCriticModel,
+                                        DEVICE)
+        
+    elif algorithm_type == 'WholePPOTrainer':
+        actorModel = TransformerKnapsack(modelConfig, output_type, device=DEVICE)
+        ppoTrainer = (INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
+                                        actorModel, normalCriticModel, extraCriticModel,
+                                        DEVICE)
     return env, ppoTrainer
-    
 
 def fractionSACInitializer ():
     sacConfig = FractionSACConfig()
@@ -488,13 +462,12 @@ def encoderMLP_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
             done = False
             episodeInternalReward = torch.tensor (0.0)
             while not done:
-                #print(externalObservation[0])
                 action, accepted_action, prob, value, internalReward = ppoTrainer.make_steps(
                         externalObservation, env.statePrepares)
-                #print(externalObservation)
-                #print(accepted_action)
                 episodeInternalReward += internalReward.sum().cpu()
                 externalObservation_, externalReward, done, info = env.step(accepted_action)
+                
+                if episodeInternalReward < -20: done = True
                 ppoTrainer.save_step (externalObservation, action, prob, value, 
                                       internalReward, done)
                 
@@ -502,12 +475,14 @@ def encoderMLP_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
                 if n_steps % ppoTrainer.config.internal_batch == 0:
                     ppoTrainer.train_minibatch('int')
                 if ~(accepted_action == [-1,-1]).all():
+                    #print(accepted_action)
                     n_steps1 +=1
                     ppoTrainer.save_ext_step (externalObservation, action, prob, value, 
                                               torch.tensor(externalReward), done)   
                     if n_steps1 % ppoTrainer.config.external_batch == 0:
                         ppoTrainer.train_minibatch('ext')
                 externalObservation = externalObservation_
+                
                 
             scores, remain_cap_ratios = env.final_score()
             batch_score_per_grredy = np.mean([s/gs for s,gs in zip(scores, greedyScores[batch])])
@@ -549,16 +524,10 @@ if __name__ == '__main__':
     statePrepareList = dataInitializer()
     greedyScores = greedyAlgorithm(statePrepareList)
     
-    #env, sacTrainer = fractionSACInitializer()
-    #fraction_sac_train(env, ppoTrainer, statePrepareList, greedyScores)
+    for algorithm_type in PPO_ALGORITHMS:
+        for output_type in OUTPUT_TYPES:
+            env, ppoTrainer = ppoInitializer (output_type, algorithm_type)
+            
     
-    #env, sacTrainer = encoderMlpSACInitializer()
-    #encoderMLP_sac_train (env, sacTrainer, statePrepareList, greedyScores)
-    
-    env, ppoTrainer = encoderMlpPPOInitializer()
     encoderMLP_ppo_train(env, ppoTrainer, statePrepareList, greedyScores)
-    
-    #env, ppoTrainer = ppoInitializer()
-    #ppo_train(env, ppoTrainer, statePrepareList, greedyScores)
-
     

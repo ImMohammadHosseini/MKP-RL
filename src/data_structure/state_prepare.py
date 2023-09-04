@@ -134,7 +134,8 @@ class ExternalStatePrepare:
             padding = np.zeros((1, len(self.remainInstanceWeights[0])+1)) 
             self.stateWeightValues = self._pad_left(np.append(
                 self.remainInstanceWeights, self.remainInstanceValues, axis=1),
-                padding)
+                padding, self.pad_len)
+            
             '''np.append(padding, 
                                                np.append(self.remainInstanceWeights, 
                                                self.remainInstanceValues, axis=1),

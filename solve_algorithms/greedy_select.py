@@ -25,7 +25,7 @@ class GreedySelect():
         accepted_actions = np.zeros((0,2), dtype= int)
         if (self.statePrepare.is_terminated()):
             return accepted_actions
-        self.caps, self.weightValues = self.statePrepare.getObservation()
+        self.caps, self.weightValues = self.statePrepare.getObservation1()
         values = self.weightValues[:, -1]
         weightSum = np.sum(self.weightValues[:, :-1],1)
         greedy_inst_indx = np.flip(np.argsort(np.trim_zeros(values)/np.trim_zeros(weightSum)))[:self.greedy_num]
