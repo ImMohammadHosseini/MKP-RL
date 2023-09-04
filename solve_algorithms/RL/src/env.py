@@ -73,7 +73,7 @@ class KnapsackAssignmentEnv (gym.Env):
             batchCaps = np.append(batchCaps, np.expand_dims(stateCaps, 0), 0) 
             batchWeightValues = np.append(batchWeightValues, 
                                           np.expand_dims(stateWeightValues, 0), 0)'''
-        stateCaps, stateWeightValues = self.statePrepares[0].getObservation()
+        stateCaps, stateWeightValues = self.statePrepares[0].getObservation1()
         batchCaps = np.expand_dims(stateCaps, 0)
         batchWeightValues = np.expand_dims(stateWeightValues, 0)
         return {"knapsack": batchCaps, "instance_value":batchWeightValues}
@@ -86,9 +86,9 @@ class KnapsackAssignmentEnv (gym.Env):
         self.no_change = 0
         for statePrepare in self.statePrepares: statePrepare.reset()
         externalObservation = self._get_obs()
-        SOD = np.array([1.]*4)
-        EOD = np.array([[[2.]*4]]*self.main_batch_size)
-
+        SOD = np.array([1.]*2)
+        EOD = np.array([[[2.]*2]]*self.main_batch_size)
+        
         shape = externalObservation["instance_value"].shape
         sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))
         for index in range(self.main_batch_size):
@@ -98,6 +98,7 @@ class KnapsackAssignmentEnv (gym.Env):
         externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
                                             np.append(externalObservation["knapsack"], 
                                              EOD, axis=1),axis=1)
+        
         #externalObservation = np.append(externalObservation["instance_value"], 
         #                                externalObservation["knapsack"], axis=1)
         info = self._get_info()
@@ -105,6 +106,7 @@ class KnapsackAssignmentEnv (gym.Env):
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device)#.unsqueeze(dim=0)
+
         #print(externalObservation.size())
         return externalObservation, info
     
@@ -128,8 +130,8 @@ class KnapsackAssignmentEnv (gym.Env):
         #    return None, externalRewards, terminated, info
         
         externalObservation = self._get_obs()
-        SOD = np.array([1.]*self.dim)
-        EOD = np.array([[[2.]*self.dim]]*self.main_batch_size)
+        SOD = np.array([1.]*2)
+        EOD = np.array([[[2.]*2]]*self.main_batch_size)
 
         shape = externalObservation["instance_value"].shape
         sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))
@@ -148,6 +150,7 @@ class KnapsackAssignmentEnv (gym.Env):
                                            dtype=torch.float32, 
                                            device=self.device)
         #print(externalObservation.size())
+        #print(externalRewards)
 
         
         return externalObservation, externalRewards, terminated, info
