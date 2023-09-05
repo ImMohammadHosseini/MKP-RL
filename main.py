@@ -15,9 +15,8 @@ from configs.ppo_configs import PPOConfig
 from configs.fraction_sac_configs import FractionSACConfig
 from configs.transformers_model_configs import TransformerKnapsackConfig
 from src.models.transformer import TransformerKnapsack
-from src.models.transformer import OneGenerateTransformerKnapsack
 from src.models.EncoderMLP import EncoderMLPKnapsack, RNNMLPKnapsack
-from src.models.critic_model import CriticNetwork, ExternalCriticNetwork
+from src.models.critic_model import CriticNetwork1, CriticNetwork2
 from src.data_structure.state_prepare import ExternalStatePrepare
 from src.transformer_trainer import TransformerTrainer
 from solve_algorithms.RL.src.env import KnapsackAssignmentEnv
@@ -29,7 +28,10 @@ from solve_algorithms.RL.ppo_trainer import PPOTrainer
 from solve_algorithms.RL.fraction_ppo_trainer import FractionPPOTrainer
 from solve_algorithms.RL.one_generate_fraction_ppo_trainer import OneGenerateFractionPPOTrainer
 from solve_algorithms.RL.fraction_sac_trainer import FractionSACTrainer
-from solve_algorithms.RL.encoder_mlp_ppo_trainer import EncoderMlpPPOTrainer
+from solve_algorithms.RL.encoder_mlp_ppo_trainer import (
+    EncoderPPOTrainer_t2, 
+    EncoderPPOTrainer_t3
+    )
 from solve_algorithms.RL.encoder_mlp_sac_trainer import EncoderMlpSACTrainer
 usage = "usage: python main.py -V <variation> -M <knapsaks> -N <instances>"
 
@@ -65,7 +67,7 @@ N_TEST_STEPS = 10
 SAVE_PATH = 'pretrained/save_models'
 DATA_PATH = 'dataset/'
 
-PPO_ALGORITHMS = ['PPOTrainer', 'FractionPPOTrainer', 'WholePPOTrainer']
+PPO_ALGORITHMS = ['EncoderPPOTrainer', 'FractionPPOTrainer', 'WholePPOTrainer']
 PPO_ALGORITHMS = ['SACTrainer', 'FractionSACTrainer']
 OTHER_ALGORITHMS = ['RandomSelect', 'GreedySelect']
 INPUT_TYPES = ['type_1']
@@ -124,21 +126,28 @@ def greedyAlgorithm (statePrepareList):
         greedyScores.append(bestScore)
     return greedyScores
 
-def ppoInitializer (output_type, algorithm_type, train_process):
-    ppoConfig = PPOConfig(generat_link_number=1) if algorithm_type == 'PPOTrainer' else PPOConfig()
+def ppoInitializer (output_type, algorithm_type):
+    ppoConfig = PPOConfig(generat_link_number=1) if algorithm_type == 'EncoderPPOTrainer' else PPOConfig()
     modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
                                             opts.dim, DEVICE, ppoConfig.generat_link_number)
     
     env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
                                 KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE, MAIN_BATCH_SIZE)
-    normalCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim, name='normalCriticModel')
-    extraCriticModel = ExternalCriticNetwork(modelConfig.max_length, modelConfig.input_encode_dim, name='extraCriticModel')
     
-    if algorithm_type == 'PPOTrainer':
+    if algorithm_type == 'EncoderPPOTrainer':
         actorModel = EncoderMLPKnapsack(modelConfig, output_type, device=DEVICE)
-        ppoTrainer = EncoderMlpPPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
-                                          actorModel, normalCriticModel, extraCriticModel,
-                                          DEVICE)
+        normalCriticModel = CriticNetwork2(modelConfig.max_length, modelConfig.input_encode_dim, 
+                                           device=DEVICE, name='normalCriticModel')
+        extraCriticModel = CriticNetwork2(modelConfig.max_length, modelConfig.input_encode_dim, 
+                                          device=DEVICE, name='extraCriticModel')
+        
+        if output_type == 'type2':
+            ppoTrainer = EncoderPPOTrainer_t2(INFOS, SAVE_PATH, ppoConfig, actorModel, 
+                                              normalCriticModel, extraCriticModel)
+        elif output_type == 'type3': 
+            'h'
+            ppoTrainer = EncoderPPOTrainer_t3(INFOS, SAVE_PATH, ppoConfig, actorModel, 
+                                              normalCriticModel, extraCriticModel)
         
     elif algorithm_type == 'FractionPPOTrainer':
         actorModel = TransformerKnapsack(modelConfig, output_type, device=DEVICE)
@@ -444,8 +453,8 @@ def encoderMLP_sac_train (env, sacTrainer, statePrepareList, greedyScores):
     figure_file = 'plots/encoderMLP_sac_remain_cap_ratio.png'
     title = 'Running average of previous 50 remain caps'
     plot_learning_curve(x, remain_cap_history, figure_file, title)
-    
-def encoderMLP_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
+
+def ppo_train_extra (env, ppoTrainer, statePrepareList, greedyScores):
     statePrepares = np.array(statePrepareList)
     
     greedyScores = np.array(greedyScores)
@@ -454,80 +463,80 @@ def encoderMLP_ppo_train (env, ppoTrainer, statePrepareList, greedyScores):
     n_steps = 0
     n_steps1 = 0
     for i in tqdm(range(N_TRAIN_STEPS)):
-        batchs = ppoTrainer.generate_batch(PROBLEMS_NUM, MAIN_BATCH_SIZE)
-        for batch in batchs:
-            env.setStatePrepare(statePrepares[batch])
+        for batch in range(len(statePrepares)):
+            env.setStatePrepare(statePrepares[0])
 
             externalObservation, _ = env.reset()
             done = False
-            episodeInternalReward = torch.tensor (0.0)
+            episodeNormalReward = torch.tensor (0.0)
             while not done:
-                action, accepted_action, prob, value, internalReward = ppoTrainer.make_steps(
-                        externalObservation, env.statePrepares)
-                episodeInternalReward += internalReward.sum().cpu()
-                externalObservation_, externalReward, done, info = env.step(accepted_action)
+                internalObservations, actions, accepted_action, probs, values, \
+                    rewards, steps = ppoTrainer.make_steps(externalObservation, 
+                                                           env.statePrepares, False, False)
+                print(torch.cat(rewards,0).sum())
+                episodeNormalReward += torch.cat(rewards,0).sum()
+                externalObservation_, extraReward, done, info = env.step(accepted_action)
                 
-                if episodeInternalReward < -20: done = True
-                ppoTrainer.save_step (externalObservation, action, prob, value, 
-                                      internalReward, done)
+                if episodeNormalReward < -20: done = True
+                ppoTrainer.memory.save_normal_step(externalObservation, actions, \
+                                                   probs, values, rewards, done, \
+                                                   steps, internalObservations)
                 
                 n_steps += 1
-                if n_steps % ppoTrainer.config.internal_batch == 0:
-                    ppoTrainer.train_minibatch('int')
+                if n_steps % ppoTrainer.config.normal_batch == 0:
+                    ppoTrainer.train('normal')
                 if ~(accepted_action == [-1,-1]).all():
                     #print(accepted_action)
                     n_steps1 +=1
-                    ppoTrainer.save_ext_step (externalObservation, action, prob, value, 
-                                              torch.tensor(externalReward), done)   
-                    if n_steps1 % ppoTrainer.config.external_batch == 0:
-                        ppoTrainer.train_minibatch('ext')
+                    ppoTrainer.memory.save_extra_step(externalObservation, actions, \
+                                                      probs, values, extraReward, \
+                                                      done, steps, internalObservations)   
+                    if n_steps1 % ppoTrainer.config.extra_batch == 0:
+                        ppoTrainer.train('extra')
                 externalObservation = externalObservation_
-                
                 
             scores, remain_cap_ratios = env.final_score()
             batch_score_per_grredy = np.mean([s/gs for s,gs in zip(scores, greedyScores[batch])])
             
-            reward_history.append(float(episodeInternalReward))
+            reward_history.append(float(episodeNormalReward))
             score_history.append(batch_score_per_grredy)
             remain_cap_history.append(np.mean(remain_cap_ratios))
             avg_reward = np.mean(reward_history[-50:])
             avg_score = np.mean(score_history[-50:])
-
+            
             if avg_reward > best_reward:
                 best_reward  = avg_reward
                 ppoTrainer.save_models()
             print('episode', i, 'score %.3f' % batch_score_per_grredy, 'avg score %.2f' % avg_score,
                   'time_steps', n_steps, 'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios),
-                  'interanl_reward %.3f'%float(episodeInternalReward), 'avg reward %.3f' %avg_reward)
+                  'interanl_reward %.3f'%float(episodeNormalReward), 'avg reward %.3f' %avg_reward)
     
     x = [i+1 for i in range(len(reward_history))]
     figure_file = 'plots/encoderMLP_ppo_reward.png'
     title = 'Running average of previous 50 scores'
     label = 'scores'
-    plot_learning_curve(x, reward_history, figure_file, title, label)#TODO add visualization
+    plot_learning_curve(x, reward_history, figure_file, title, label)
     
     
     x = [i+1 for i in range(len(score_history))]
     figure_file = 'plots/encoderMLP_ppo_score_per_greedyScore.png'
     title = 'Running average of previous 50 scores'
     label = 'scores'
-    plot_learning_curve(x, score_history, figure_file, title, label)#TODO add visualization
+    plot_learning_curve(x, score_history, figure_file, title, label)
     
     x = [i+1 for i in range(len(remain_cap_history))]
     figure_file = 'plots/encoderMLP_ppo_remain_cap_ratio.png'
     title = 'Running average of previous 50 remain caps'
     label = 'remain caps'
     plot_learning_curve(x, remain_cap_history, figure_file, title, label)
-        
+                
 if __name__ == '__main__':
     
     statePrepareList = dataInitializer()
     greedyScores = greedyAlgorithm(statePrepareList)
     
-    for algorithm_type in PPO_ALGORITHMS:
-        for output_type in OUTPUT_TYPES:
-            env, ppoTrainer = ppoInitializer (output_type, algorithm_type)
-            
-    
-    encoderMLP_ppo_train(env, ppoTrainer, statePrepareList, greedyScores)
+    #for algorithm_type in PPO_ALGORITHMS:
+    #    for output_type in OUTPUT_TYPES:False, False
+    env, ppoTrainer = ppoInitializer ('type3', 'EncoderPPOTrainer')
+    ppo_train_extra(env, ppoTrainer, statePrepareList, greedyScores)
     
