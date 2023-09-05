@@ -5,7 +5,7 @@
 
 import torch
 import numpy as np
-from torch.optim import AdamW
+from torch.optim import Adam
 from typing import List, Optional
 import time
 
@@ -15,10 +15,201 @@ from copy import deepcopy
 
 from torch.autograd import Variable
 from .src.base_trainer import BaseTrainer
+from .src.ppo_base import PPOBase
+
 from configs.ppo_configs import PPOConfig
 from os import path, makedirs
 
 
+class EncoderPPOTrainer_t2(PPOBase):
+    def __init__(
+        self,
+        info: List,
+        save_path: str,
+        config: PPOConfig,
+        actor_model: torch.nn.Module,
+        normal_critic_model: torch.nn.Module,
+        extra_critic_model: torch.nn.Module,
+        
+    ):
+        savePath = save_path +'/RL/EncoderPPOTrainer_t2/'
+        super().__init__(config, savePath, actor_model, normal_critic_model,
+                         extra_critic_model)
+        self.info = info
+        
+        if path.exists(self.save_path):
+            self.load_models()
+            self.pretrain_need = False
+        else: self.pretrain_need = True
+    
+    def _choose_actions (
+        self, 
+        generatedAction,
+        secondGenerated,
+    ):pass
+    
+class EncoderPPOTrainer_t3(PPOBase):
+    def __init__(
+        self,
+        info: List,
+        save_path: str,
+        config: PPOConfig,
+        actor_model: torch.nn.Module,
+        normal_critic_model: torch.nn.Module,
+        extra_critic_model: torch.nn.Module,
+        
+    ):
+        savePath = save_path +'/RL/EncoderPPOTrainer_t2/'
+        super().__init__(config, savePath, actor_model, normal_critic_model,
+                         extra_critic_model)
+        self.info = info
+        
+        if path.exists(self.save_path):
+            self.load_models()
+            self.pretrain_need = False
+        else: self.pretrain_need = True
+        
+    
+    def _choose_actions (
+        self, 
+        generatedAction,
+        secondGenerated,
+    ):
+        acts = torch.zeros((0,1), dtype=torch.int)
+        log_probs = torch.zeros((0,1), dtype=torch.int)
+        for ga in generatedAction:
+            act_dist = Categorical(ga)
+            act = act_dist.sample() 
+            
+            acts = torch.cat([acts, act.unsqueeze(0).unsqueeze(0).cpu()], dim=0)
+            log_probs = torch.cat([log_probs, act_dist.log_prob(act).unsqueeze(0).unsqueeze(0).cpu()], dim=0)
+            print('fff', acts.size())
+        return acts, log_probs
+    
+    
+    def normal_reward (
+        self,
+        action: torch.tensor,
+        accepted_action: np.ndarray,
+        step, 
+        prompt, 
+        statePrepares,
+    ):
+        rewards = []
+        for index, act in enumerate(action):
+            #print(act)
+            inst_act = int(act / self.actor_model.config.knapsack_obs_size) 
+            ks_act = statePrepares.getRealKsAct(int(
+                act % self.actor_model.config.knapsack_obs_size))
+            knapSack = statePrepares.getKnapsack(ks_act)
+            
+            eCap = knapSack.getExpectedCap()
+            weight = statePrepares.getObservedInstWeight(inst_act)
+            value = statePrepares.getObservedInstValue(inst_act)
+            
+            if inst_act < statePrepares.pad_len: 
+                    rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
+                    continue
+            
+            if all(eCap >= weight):
+                rewards.append(+(value/ np.sum(weight)))
+                knapSack.removeExpectedCap(weight)
+                
+                accepted_action = np.append(accepted_action,
+                                            [[inst_act, ks_act]], 0)[1:]
+            else:
+                rewards.append(-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
+        #print(rewards)
+        return torch.tensor(rewards).unsqueeze(0)
+    
+    def train (
+        self, 
+        mode = 'normal'
+    ):  
+        if mode == 'normal':
+            n_state = self.config.normal_batch
+            batch_size = self.config.ppo_normal_batch_size
+            memoryObs, memoryAct, memoryPrb, memoryVal, memoryRwd, memoryDon \
+                = self.memory.get_normal_memory()
+            criticModel = self.normal_critic_model
+            criticOptim = self.normal_critic_optimizer
+            
+        elif mode == 'extra':
+            n_state = self.config.extra_batch
+            batch_size = self.config.ppo_extra_batch_size
+            memoryObs, memoryAct, memoryPrb, memoryVal, memoryRwd, memoryDon \
+                 = self.memory.get_extra_memory()
+            criticModel = self.extra_critic_model
+            criticOptim = self.extra_critic_optimizer
+
+        
+        for _ in range(self.config.ppo_epochs):
+            batches = self.generate_batch(n_state, batch_size)
+            
+            obs = memoryObs.squeeze().to(self.actor_model.device)
+            acts = memoryAct.to(self.actor_model.device)
+            probs = memoryPrb.to(self.actor_model.device)
+            rewards = memoryRwd.to(self.actor_model.device)
+            vals = memoryVal.to(self.actor_model.device)
+            done = memoryDon.to(self.actor_model.device)
+
+            advantage = torch.zeros(self.config.normal_batch, dtype=torch.float32)
+            for t in range(self.config.normal_batch-1):
+                discount = 1
+                a_t = 0
+                for k in range(t, self.config.normal_batch-1):
+                    a_t += discount*(rewards[k] + self.config.gamma*vals[k+1]*\
+                                     (1-int(done[k])) - vals[k])                
+                    discount *= self.config.gamma*self.config.gae_lambda
+                #print(a_t)
+                advantage[t] = a_t
+
+            advantage = advantage.to(self.actor_model.device)
+            for batch in batches:
+                batchObs = obs[batch].to(self.actor_model.device)
+
+                batchActs = acts[batch]
+                batchProbs = probs[batch].squeeze().to(self.actor_model.device)
+                batchVals = vals[batch].to(self.actor_model.device)
+
+                firstGenerated, secondGenerated, _ = self.actor_model.generateOneStep(
+                    batchObs, None, None)
+                
+                act_dist = Categorical(firstGenerated)
+                
+                new_log_probs = act_dist.log_prob(batchActs.squeeze().to(self.actor_model.device))
+                newVal = criticModel(batchObs)
+                
+                prob_ratio = new_log_probs.exp() / batchProbs.exp()
+                weighted_probs = advantage[batch] * prob_ratio
+                weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
+                            1+self.config.cliprange)*advantage[batch]
+                actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
+                returns = advantage[batch].unsqueeze(dim=1) + batchVals
+            
+                critic_loss = (returns-newVal)**2
+                critic_loss = torch.mean(critic_loss)
+
+                total_loss = (actor_loss + 0.5*critic_loss).detach()
+                total_loss.requires_grad=True
+                
+                self.actor_optimizer.zero_grad()
+                criticOptim.zero_grad()
+                total_loss.backward()
+                print(total_loss.grad)
+                self.actor_optimizer.step()
+                self.normal_critic_optimizer.step()
+
+
+        self.memory.reset_normal_memory() if mode == 'normal' else \
+            self.memory.reset_extra_memory()
+        
+        
+        
+        
+        
+        
+        
 class EncoderMlpPPOTrainer(BaseTrainer):
     r"""
     this implementation is inspired by: 
@@ -54,19 +245,19 @@ class EncoderMlpPPOTrainer(BaseTrainer):
         self.external_critic_model = self.external_critic_model.to(self.device)
         
         if actor_optimizer is None:
-            self.actor_optimizer = AdamW(self.actor_model.parameters(), lr=self.config.actor_lr
+            self.actor_optimizer = Adam(self.actor_model.parameters(), lr=self.config.actor_lr
             )
         else:
             self.actor_optimizer = actor_optimizer
         
         if critic_optimizer is None:
-            self.critic_optimizer = AdamW(self.critic_model.parameters(), lr=self.config.critic_lr
+            self.critic_optimizer = Adam(self.critic_model.parameters(), lr=self.config.critic_lr
             )
         else:
             self.critic_optimizer = critic_optimizer
             
         if external_critic_optimizer is None:
-            self.external_critic_optimizer = AdamW(self.external_critic_model.parameters(), lr=self.config.critic_lr
+            self.external_critic_optimizer = Adam(self.external_critic_model.parameters(), lr=self.config.critic_lr
             )
         else:
             self.external_critic_model = external_critic_model
@@ -163,7 +354,7 @@ class EncoderMlpPPOTrainer(BaseTrainer):
             value = statePrepares[index].getObservedInstValue(inst_act)
             
             if inst_act < statePrepares[index].pad_len: 
-                    rewards.append(0)#-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
+                    rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
             
             if all(eCap >= weight):
@@ -172,7 +363,7 @@ class EncoderMlpPPOTrainer(BaseTrainer):
                 accepted_action[index] = np.append(accepted_action[index][1:],
                                                    [[inst_act, ks_act]], 0)
             else:
-                rewards.append(0)#-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
+                rewards.append(-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
         #print(rewards)
         return torch.tensor(rewards, device=self.device).unsqueeze(0)
     
@@ -193,6 +384,13 @@ class EncoderMlpPPOTrainer(BaseTrainer):
         self, 
         mode = 'int'
     ):
+        '''for param in self.actor_model.parameters():
+            param.requires_grad = True
+        for param in self.critic_model.parameters():
+            param.requires_grad = True
+        for param in self.external_critic_model.parameters():
+            param.requires_grad = True'''
+            
         if mode == 'int':
             n_state = self.config.internal_batch
             batch_size = self.config.ppo_int_batch_size
@@ -202,6 +400,7 @@ class EncoderMlpPPOTrainer(BaseTrainer):
             memoryVal = torch.cat(self.memory_val, 1)
             memoryRwd = torch.cat(self.memory_internalReward, 1)
             memoryDon = torch.cat(self.memory_done, 1)
+            criticModel = self.critic_model
         elif mode == 'ext':
             n_state = self.config.external_batch
             batch_size = self.config.ppo_ext_batch_size
@@ -211,6 +410,15 @@ class EncoderMlpPPOTrainer(BaseTrainer):
             memoryVal = torch.cat(self.memory_ext_val, 1)
             memoryRwd = torch.cat(self.memory_ext_internalReward, 1)
             memoryDon = torch.cat(self.memory_ext_done, 1)
+            criticModel = self.external_critic_model
+
+        
+        #memoryObs.requires_grad = True
+        #memoryAct.requires_grad = True 
+        #memoryPrb.requires_grad = True
+        #memoryVal.requires_grad = True
+        #memoryRwd.requires_grad = True
+        #memoryDon.requires_grad = True
         
         for _ in range(self.config.ppo_epochs):
             batches = self.generate_batch(n_state, batch_size)
@@ -241,15 +449,12 @@ class EncoderMlpPPOTrainer(BaseTrainer):
                     batchVals = vals[batch].to(self.device)
                     
                     generatedAct = self.actor_model.generateOneStep(batchObs.to(self.device))
-                   
                     
                     act_dist = Categorical(generatedAct)
                     entropy_loss = act_dist.entropy().unsqueeze(1)
                     new_log_probs = act_dist.log_prob(batchActs.to(self.device))
-                    
-                    newVal = self.critic_model(batchObs.to(self.device))
-                    
-                    prob_ratio = (new_log_probs.to(self.device) - batchProbs).exp()
+                    newVal = criticModel(batchObs.to(self.device))
+                    prob_ratio = new_log_probs.exp().to(self.device) / batchProbs.exp()
                     weighted_probs = advantage[batch] * prob_ratio
                     
                     
@@ -262,29 +467,24 @@ class EncoderMlpPPOTrainer(BaseTrainer):
                     critic_loss = (returns-newVal)**2
                     critic_loss = torch.mean(critic_loss)
                     entropy_loss = -torch.mean(entropy_loss)
-
                     
-                    actor_loss_leaf = Variable(actor_loss.data, requires_grad=True)
-                    critic_loss_leaf = Variable(critic_loss.data, requires_grad=True)
-                    entropy_loss_leaf = Variable(entropy_loss.data, requires_grad=True)
 
-                    total_loss = actor_loss_leaf + 0.5*critic_loss_leaf# + 0.1*entropy_loss_leaf
-
+                    total_loss = actor_loss + 0.5*critic_loss# + 0.1*entropy_loss
+                    
                     self.actor_optimizer.zero_grad()
+                    #actor_loss.backward()
+
                     self.critic_optimizer.zero_grad()
-
-                    #self.critic_optimizer.zero_grad()
-
                     total_loss.backward()
-                    #actor_loss_leaf.backward()
-                    self.actor_optimizer.step()
-                    #self.critic_optimizer.zero_grad()
-                    #critic_loss_leaf.backward()#retain_graph=True
                     self.critic_optimizer.step()
-        
-        self._reset_memory() if mode == 'int' else self._reset_ext_memory()
+                    self.actor_optimizer.step()
 
-                    
+
+        self._reset_memory() if mode == 'int' else self._reset_ext_memory()
+        '''for param in self.actor_model.parameters():
+            param.requires_grad = False
+        for param in self.critic_model.parameters():
+            param.requires_grad = False'''
                     
     def external_train (
         self,
