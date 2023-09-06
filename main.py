@@ -26,7 +26,11 @@ import matplotlib.pyplot as plt
 
 from solve_algorithms.RL.ppo_trainer import PPOTrainer
 from solve_algorithms.RL.fraction_ppo_trainer import FractionPPOTrainer
-from solve_algorithms.RL.one_generate_fraction_ppo_trainer import OneGenerateFractionPPOTrainer
+from solve_algorithms.RL.one_generate_fraction_ppo_trainer import (
+    FractionPPOTrainer_t1,
+    FractionPPOTrainer_t2,
+    FractionPPOTrainer_t3
+    )
 from solve_algorithms.RL.fraction_sac_trainer import FractionSACTrainer
 from solve_algorithms.RL.encoder_mlp_ppo_trainer import (
     EncoderPPOTrainer_t2, 
@@ -48,7 +52,7 @@ parser.add_option("-M", "--mode", action="store", dest="mode",
                   default='train')
 opts, args = parser.parse_args()
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cpu")#"cuda" if torch.cuda.is_available() else "cpu")
 INFOS = {'CAP_LOW':80,
          'CAP_HIGH':350, 
          'WEIGHT_LOW':10, 
@@ -145,22 +149,35 @@ def ppoInitializer (output_type, algorithm_type):
             ppoTrainer = EncoderPPOTrainer_t2(INFOS, SAVE_PATH, ppoConfig, actorModel, 
                                               normalCriticModel, extraCriticModel)
         elif output_type == 'type3': 
-            'h'
             ppoTrainer = EncoderPPOTrainer_t3(INFOS, SAVE_PATH, ppoConfig, actorModel, 
                                               normalCriticModel, extraCriticModel)
+            flags = [True, False]
         
     elif algorithm_type == 'FractionPPOTrainer':
         actorModel = TransformerKnapsack(modelConfig, output_type, device=DEVICE)
-        ppoTrainer = FractionPPOTrainer(INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
-                                        actorModel, normalCriticModel, extraCriticModel,
-                                        DEVICE)
+        normalCriticModel = CriticNetwork1(modelConfig.max_length, modelConfig.input_encode_dim, 
+                                           (ppoConfig.generat_link_number+1), modelConfig.input_decode_dim,
+                                           device=DEVICE, name='normalCriticModel')
+        extraCriticModel = CriticNetwork1(modelConfig.max_length, modelConfig.input_encode_dim, 
+                                          (ppoConfig.generat_link_number+1), modelConfig.input_decode_dim,
+                                          device=DEVICE, name='extraCriticModel')
+        
+        if output_type == 'type1': pass
+        elif output_type == 'type2': pass
+        elif output_type == 'type3':
+            ppoTrainer = FractionPPOTrainer_t3(INFOS, SAVE_PATH, ppoConfig, actorModel, 
+                                              normalCriticModel, extraCriticModel)
+            flags = [True, True]
         
     elif algorithm_type == 'WholePPOTrainer':
         actorModel = TransformerKnapsack(modelConfig, output_type, device=DEVICE)
-        ppoTrainer = (INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
+        if output_type == 'type1': pass
+        elif output_type == 'type2': pass
+        elif output_type == 'type3':
+            ppoTrainer = (INFOS, SAVE_PATH, MAIN_BATCH_SIZE, ppoConfig, 
                                         actorModel, normalCriticModel, extraCriticModel,
                                         DEVICE)
-    return env, ppoTrainer
+    return env, ppoTrainer, flags
 
 def fractionSACInitializer ():
     sacConfig = FractionSACConfig()
@@ -454,7 +471,7 @@ def encoderMLP_sac_train (env, sacTrainer, statePrepareList, greedyScores):
     title = 'Running average of previous 50 remain caps'
     plot_learning_curve(x, remain_cap_history, figure_file, title)
 
-def ppo_train_extra (env, ppoTrainer, statePrepareList, greedyScores):
+def ppo_train_extra (env, ppoTrainer, flags, statePrepareList, greedyScores):
     statePrepares = np.array(statePrepareList)
     
     greedyScores = np.array(greedyScores)
@@ -462,6 +479,7 @@ def ppo_train_extra (env, ppoTrainer, statePrepareList, greedyScores):
     reward_history = []; score_history = []; remain_cap_history = []
     n_steps = 0
     n_steps1 = 0
+    addition_steps = ppoTrainer.config.generat_link_number if flags[0] else 1
     for i in tqdm(range(N_TRAIN_STEPS)):
         for batch in range(len(statePrepares)):
             env.setStatePrepare(statePrepares[0])
@@ -472,7 +490,7 @@ def ppo_train_extra (env, ppoTrainer, statePrepareList, greedyScores):
             while not done:
                 internalObservations, actions, accepted_action, probs, values, \
                     rewards, steps = ppoTrainer.make_steps(externalObservation, 
-                                                           env.statePrepares, False, False)
+                                                           env.statePrepares, flags[0], flags[1])
                 print(torch.cat(rewards,0).sum())
                 episodeNormalReward += torch.cat(rewards,0).sum()
                 externalObservation_, extraReward, done, info = env.step(accepted_action)
@@ -482,12 +500,12 @@ def ppo_train_extra (env, ppoTrainer, statePrepareList, greedyScores):
                                                    probs, values, rewards, done, \
                                                    steps, internalObservations)
                 
-                n_steps += 1
+                n_steps += addition_steps
                 if n_steps % ppoTrainer.config.normal_batch == 0:
                     ppoTrainer.train('normal')
                 if ~(accepted_action == [-1,-1]).all():
                     #print(accepted_action)
-                    n_steps1 +=1
+                    n_steps1 += addition_steps
                     ppoTrainer.memory.save_extra_step(externalObservation, actions, \
                                                       probs, values, extraReward, \
                                                       done, steps, internalObservations)   
@@ -537,6 +555,6 @@ if __name__ == '__main__':
     
     #for algorithm_type in PPO_ALGORITHMS:
     #    for output_type in OUTPUT_TYPES:False, False
-    env, ppoTrainer = ppoInitializer ('type3', 'EncoderPPOTrainer')
-    ppo_train_extra(env, ppoTrainer, statePrepareList, greedyScores)
+    env, ppoTrainer, flags = ppoInitializer ('type3', 'FractionPPOTrainer')
+    ppo_train_extra(env, ppoTrainer, flags, statePrepareList, greedyScores)
     
