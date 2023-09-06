@@ -175,8 +175,6 @@ class TransformerKnapsack (nn.Module):
         ksGenerate: torch.tensor, 
         externalObservation: torch.tensor,
     ):
-        print(instGenerate.squeeze(0).size())
-        print(ksGenerate.size())
         SOD = [1]*self.config.input_encode_dim
         generatedInstance = instGenerate.cpu().detach().numpy()
         insts = externalObservation.squeeze(0)[:self.config.inst_obs_size+1,:-1].cpu().detach().numpy()
@@ -191,13 +189,7 @@ class TransformerKnapsack (nn.Module):
             np.linalg.norm(generatedKnapsack),0).T @ np.expand_dims(
                 np.linalg.norm(ks, axis=1),0))
         inst_dist = self.softmax(torch.nan_to_num(torch.tensor(inst_cosin_sim)))
-        print(inst_dist.size())
-        print(inst_dist)
-
         ks_dist = self.softmax(torch.nan_to_num(torch.tensor(ks_cosin_sim)))
-        print(ks_dist.size())
-
-        print(self.dd)
         
         return inst_dist, ks_dist
   
