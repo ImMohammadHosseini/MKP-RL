@@ -151,6 +151,9 @@ class TransformerKnapsack (nn.Module):
                                        encod, tgt_mask=tgt_mask, 
                                        tgt_key_padding_mask=decoder_padding_mask)
         
+        print(step)
+        print(self.config.output_dim)
+        print(transformer_out.size())
         pos = torch.cat([step.unsqueeze(0)]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
         out = transformer_out.gather(1,pos).squeeze(1)
         if self.output_type == 'type1':
@@ -172,25 +175,29 @@ class TransformerKnapsack (nn.Module):
         ksGenerate: torch.tensor, 
         externalObservation: torch.tensor,
     ):
+        print(instGenerate.squeeze(0).size())
+        print(ksGenerate.size())
         SOD = [1]*self.config.input_encode_dim
-        inst_dist = []; ks_dist =[]
-        for index in range(externalObservation.size(0)):
-            generatedInstance = np.expand_dims(instGenerate[index].cpu().detach().numpy(),0)
-            insts = externalObservation[index][:self.config.inst_obs_size+1].cpu().detach().numpy()
-            insts = insts[int(np.unique(np.where(insts == SOD)[0]))+1:]
-            #np.delete(insts, int(np.unique(np.where(insts == SOD)[0])), axis=0)
-            
-            generatedKnapsack = np.expand_dims(ksGenerate[index].cpu().detach().numpy(),0)
-            ks = externalObservation[index][self.config.inst_obs_size+2:-1].cpu().detach().numpy()
-            
-            inst_cosin_sim = (generatedInstance @ insts.T)/(np.expand_dims(
-                np.linalg.norm(generatedInstance),0).T @ np.expand_dims(
-                    np.linalg.norm(insts, axis=1),0))
-            ks_cosin_sim = (generatedKnapsack @ ks.T)/(np.expand_dims(
-                np.linalg.norm(generatedKnapsack),0).T @ np.expand_dims(
-                    np.linalg.norm(ks, axis=1),0))
-            inst_dist.append(self.softmax(torch.nan_to_num(torch.tensor(inst_cosin_sim))))
-            ks_dist.append(self.softmax(torch.nan_to_num(torch.tensor(ks_cosin_sim))))
+        generatedInstance = instGenerate.cpu().detach().numpy()
+        insts = externalObservation.squeeze(0)[:self.config.inst_obs_size+1,:-1].cpu().detach().numpy()
+        insts = insts[int(np.unique(np.where(insts == SOD)[0]))+1:]
+        generatedKnapsack = ksGenerate.cpu().detach().numpy()
+
+        ks = externalObservation.squeeze(0)[self.config.inst_obs_size+2:-1,:-1].cpu().detach().numpy()
+        inst_cosin_sim = (generatedInstance @ insts.T)/(np.expand_dims(
+            np.linalg.norm(generatedInstance),0).T @ np.expand_dims(
+                np.linalg.norm(insts, axis=1),0))
+        ks_cosin_sim = (generatedKnapsack @ ks.T)/(np.expand_dims(
+            np.linalg.norm(generatedKnapsack),0).T @ np.expand_dims(
+                np.linalg.norm(ks, axis=1),0))
+        inst_dist = self.softmax(torch.nan_to_num(torch.tensor(inst_cosin_sim)))
+        print(inst_dist.size())
+        print(inst_dist)
+
+        ks_dist = self.softmax(torch.nan_to_num(torch.tensor(ks_cosin_sim)))
+        print(ks_dist.size())
+
+        print(self.dd)
         
         return inst_dist, ks_dist
   
