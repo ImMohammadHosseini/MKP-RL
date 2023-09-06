@@ -72,19 +72,13 @@ class EncoderPPOTrainer_t3(PPOBase):
     
     def _choose_actions (
         self, 
-        generatedAction,
+        firstGenerated,
         secondGenerated,
     ):
-        acts = torch.zeros((0,1), dtype=torch.int)
-        log_probs = torch.zeros((0,1), dtype=torch.int)
-        for ga in generatedAction:
-            act_dist = Categorical(ga)
-            act = act_dist.sample() 
-            
-            acts = torch.cat([acts, act.unsqueeze(0).unsqueeze(0).cpu()], dim=0)
-            log_probs = torch.cat([log_probs, act_dist.log_prob(act).unsqueeze(0).unsqueeze(0).cpu()], dim=0)
-            print('fff', acts.size())
-        return acts, log_probs
+        act_dist = Categorical(firstGenerated)
+        act = act_dist.sample()
+        log_prob = act_dist.log_prob(act).unsqueeze(0).unsqueeze(0)
+        return act.unsqueeze(0).unsqueeze(0), log_prob
     
     
     def normal_reward (
@@ -142,16 +136,15 @@ class EncoderPPOTrainer_t3(PPOBase):
             criticModel = self.extra_critic_model
             criticOptim = self.extra_critic_optimizer
 
+        obs = memoryObs.squeeze().to(self.actor_model.device)
+        acts = memoryAct.to(self.actor_model.device)
+        probs = memoryPrb.to(self.actor_model.device)
+        rewards = memoryRwd.to(self.actor_model.device)
+        vals = memoryVal.to(self.actor_model.device)
+        done = memoryDon.to(self.actor_model.device)
         
         for _ in range(self.config.ppo_epochs):
             batches = self.generate_batch(n_state, batch_size)
-            
-            obs = memoryObs.squeeze().to(self.actor_model.device)
-            acts = memoryAct.to(self.actor_model.device)
-            probs = memoryPrb.to(self.actor_model.device)
-            rewards = memoryRwd.to(self.actor_model.device)
-            vals = memoryVal.to(self.actor_model.device)
-            done = memoryDon.to(self.actor_model.device)
 
             advantage = torch.zeros(self.config.normal_batch, dtype=torch.float32)
             for t in range(self.config.normal_batch-1):
@@ -166,13 +159,12 @@ class EncoderPPOTrainer_t3(PPOBase):
 
             advantage = advantage.to(self.actor_model.device)
             for batch in batches:
-                batchObs = obs[batch].to(self.actor_model.device)
-
+                batchObs = obs[batch]
                 batchActs = acts[batch]
-                batchProbs = probs[batch].squeeze().to(self.actor_model.device)
-                batchVals = vals[batch].to(self.actor_model.device)
+                batchProbs = probs[batch].squeeze()
+                batchVals = vals[batch]
 
-                firstGenerated, secondGenerated, _ = self.actor_model.generateOneStep(
+                firstGenerated, _, _ = self.actor_model.generateOneStep(
                     batchObs, None, None)
                 
                 act_dist = Categorical(firstGenerated)
