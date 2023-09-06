@@ -89,32 +89,28 @@ class EncoderPPOTrainer_t3(PPOBase):
         prompt, 
         statePrepares,
     ):
-        rewards = []
-        for index, act in enumerate(action):
-            #print(act)
-            inst_act = int(act / self.actor_model.config.knapsack_obs_size) 
-            ks_act = statePrepares.getRealKsAct(int(
-                act % self.actor_model.config.knapsack_obs_size))
-            knapSack = statePrepares.getKnapsack(ks_act)
+        act = int(action)
+        inst_act = int(act / self.actor_model.config.knapsack_obs_size) 
+        ks_act = statePrepares.getRealKsAct(int(
+            act % self.actor_model.config.knapsack_obs_size))
+        knapSack = statePrepares.getKnapsack(ks_act)
             
-            eCap = knapSack.getExpectedCap()
-            weight = statePrepares.getObservedInstWeight(inst_act)
-            value = statePrepares.getObservedInstValue(inst_act)
+        eCap = knapSack.getExpectedCap()
+        weight = statePrepares.getObservedInstWeight(inst_act)
+        value = statePrepares.getObservedInstValue(inst_act)
             
-            if inst_act < statePrepares.pad_len: 
-                    rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
-                    continue
+        if inst_act < statePrepares.pad_len: 
+            reward = -(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW']))
+        
+        elif all(eCap >= weight):
+            reward = +(value / np.sum(weight))
+            knapSack.removeExpectedCap(weight)
+            accepted_action = np.append(accepted_action,
+                                         [[inst_act, ks_act]], 0)[1:]
+        else:
+            reward = -(value / np.sum(weight))
             
-            if all(eCap >= weight):
-                rewards.append(+(value/ np.sum(weight)))
-                knapSack.removeExpectedCap(weight)
-                
-                accepted_action = np.append(accepted_action,
-                                            [[inst_act, ks_act]], 0)[1:]
-            else:
-                rewards.append(-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
-        #print(rewards)
-        return torch.tensor(rewards).unsqueeze(0)
+        return torch.tensor([reward]).unsqueeze(0)
     
     def train (
         self, 
@@ -154,7 +150,6 @@ class EncoderPPOTrainer_t3(PPOBase):
                     a_t += discount*(rewards[k] + self.config.gamma*vals[k+1]*\
                                      (1-int(done[k])) - vals[k])                
                     discount *= self.config.gamma*self.config.gae_lambda
-                #print(a_t)
                 advantage[t] = a_t
 
             advantage = advantage.to(self.actor_model.device)
@@ -188,7 +183,6 @@ class EncoderPPOTrainer_t3(PPOBase):
                 self.actor_optimizer.zero_grad()
                 criticOptim.zero_grad()
                 total_loss.backward()
-                print(total_loss.grad)
                 self.actor_optimizer.step()
                 self.normal_critic_optimizer.step()
 
