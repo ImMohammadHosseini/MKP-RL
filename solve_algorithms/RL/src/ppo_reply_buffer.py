@@ -8,8 +8,8 @@ from typing import Optional
 class PPOReplayBuffer ():
     def __init__ (self, link_number):
         self.link_number = link_number
-        self.reset_internal_memory()
-        self.reset_external_memory()
+        self.reset_normal_memory()
+        self.reset_extra_memory()
         
     
     def reset_normal_memory (self) :
@@ -44,22 +44,44 @@ class PPOReplayBuffer ():
         internalObservations: Optional[torch.tensor] = None,
 
     ):
+        print('save')
+        print(observation.size())
+        print(torch.cat([observation.unsqueeze(1)]*self.link_number, 1).size())
+        print(actions)
+        print(torch.cat(actions,1).size())
+        print('probsave',torch.cat(probs,0).size())
+        print('acsave',torch.cat(values,0).size())
+
+        print(values[0].size()) 
+        print('vlen', len(values)) 
+        print('rlen',len(rewards))
+        print(rewards[0].size())
+        print(done)
+        print(steps)
+        print(len(internalObservations))
+        print(internalObservations[0].size())
+        print(torch.cat(internalObservations,0).unsqueeze(0).size())
+
         self.normal_observation.append(torch.cat([observation.unsqueeze(1)]*self.link_number, 1).cpu())
-        self.normal_action.append(actions.cpu())
-        self.normal_prob.append(probs.cpu())
-        self.normal_val.append(values.cpu())
-        self.normal_reward.append(rewards.cpu())
+        self.normal_action.append(torch.cat(actions,1).cpu())
+        self.normal_prob.append(torch.cat(probs,1).cpu())
+        self.normal_val.append(torch.cat(values,1).cpu())
+        self.normal_reward.append(torch.cat(rewards,1).cpu())
         
         if done == True:
-            self.normal_done.append(torch.tensor([False]*(self.link_number-1)+[True]))
+            self.normal_done.append(torch.tensor([False]*(self.link_number-1)+[True]).unsqueeze(0))
         else:
-            self.normal_done.append(torch.tensor([done]*self.link_number))
+            self.normal_done.append(torch.tensor([done]*self.link_number).unsqueeze(0))
             
         if not isinstance(steps, type(None)):
-            self.normal_steps.append(steps.cpu())
+            self.normal_steps.append(steps.unsqueeze(0).cpu())
+        print(self.normal_done[0].size())
+        print(self.normal_steps[0].size())
 
         if not isinstance(internalObservations, type(None)):
-            self.normal_internalObservation.append(internalObservations.cpu())
+            self.normal_internalObservation.append(torch.cat(internalObservations,0).unsqueeze(0).cpu())
+        print(self.normal_internalObservation[0].size())
+
 
     def save_extra_step (
         self, 
@@ -71,36 +93,63 @@ class PPOReplayBuffer ():
         done: bool,
         steps: Optional[torch.tensor] = None,
         internalObservations: Optional[torch.tensor] = None,
-    ):
+    ): 
         self.extra_observation.append(torch.cat([observation.unsqueeze(1)]*self.link_number, 1).cpu())
-        self.extra_action.append(actions.cpu())
-        self.extra_prob.append(probs.cpu())
-        self.extra_val.append(values.cpu())
-        self.extra_reward.append(rewards.cpu())
+        self.extra_action.append(torch.cat(actions,1).cpu())
+        self.extra_prob.append(torch.cat(probs,1).cpu())
+        self.extra_val.append(torch.cat(values,1).cpu())
+        self.extra_reward.append(torch.cat(rewards,1).cpu())
         
         if done == True:
-            self.extra_done.append(torch.tensor([False]*(self.link_number-1)+[True]))
+            self.extra_done.append(torch.tensor([False]*(self.link_number-1)+[True]).unsqueeze(0))
         else:
-            self.extra_done.append(torch.tensor([done]*self.link_number))
+            self.extra_done.append(torch.tensor([done]*self.link_number).unsqueeze(0))
             
         if not isinstance(steps, type(None)):
-            self.extra_steps.append(steps.cpu())
+            self.extra_steps.append(steps.unsqueeze(0).cpu())
 
         if not isinstance(internalObservations, type(None)):
-            self.extra_internalObservation.append(internalObservations.cpu())
+            self.extra_internalObservation.append(torch.cat(internalObservations,0).unsqueeze(0).cpu())
+    
+    def get_normal_memory (self):
+        print(torch.cat(self.normal_observation, 0).size())
+        print(torch.cat(self.normal_action, 0).size())
+        print(torch.cat(self.normal_prob, 0).size())
+        print(torch.cat(self.normal_val, 0).size())
+        print(torch.cat(self.normal_reward, 0).size())
+        print(torch.cat(self.normal_done, 0).size())
+        print(torch.cat(self.normal_steps, 0).size())
+        print(torch.cat(self.normal_internalObservation, 0).size())
         
-    def generate_batches(self):
-        n_states = len(self.states)
-        batch_start = np.arange(0, n_states, self.batch_size)
-        indices = np.arange(n_states, dtype=np.int64)
-        np.random.shuffle(indices)
-        batches = [indices[i:i+self.batch_size] for i in batch_start]
-
-        return np.array(self.states),\
-                np.array(self.actions),\
-                np.array(self.probs),\
-                np.array(self.vals),\
-                np.array(self.rewards),\
-                np.array(self.dones),\
-                batches
+        
+        try: return torch.cat(self.normal_observation, 0), \
+                torch.cat(self.normal_action, 0), \
+                torch.cat(self.normal_prob, 0), \
+                torch.cat(self.normal_val, 0), \
+                torch.cat(self.normal_reward, 0), \
+                torch.cat(self.normal_done, 0), \
+                torch.cat(self.normal_steps, 0), \
+                torch.cat(self.normal_internalObservation, 0)
+        except: return torch.cat(self.normal_observation, 0), \
+                torch.cat(self.normal_action, 0), \
+                torch.cat(self.normal_prob, 0), \
+                torch.cat(self.normal_val, 0), \
+                torch.cat(self.normal_reward, 0), \
+                torch.cat(self.normal_done, 0)
+            
+    def get_extra_memory (self):
+        try: return torch.cat(self.extra_observation, 0), \
+                torch.cat(self.extra_action, 0), \
+                torch.cat(self.extra_prob, 0), \
+                torch.cat(self.extra_val, 0), \
+                torch.cat(self.extra_reward, 0), \
+                torch.cat(self.extra_done, 0), \
+                torch.cat(self.extra_steps, 0), \
+                torch.cat(self.extra_internalObservation, 0)
+        except: return torch.cat(self.normal_observation, 0), \
+                torch.cat(self.extra_action, 0), \
+                torch.cat(self.extra_prob, 0), \
+                torch.cat(self.extra_val, 0), \
+                torch.cat(self.extra_reward, 0), \
+                torch.cat(self.extra_done, 0)
         
