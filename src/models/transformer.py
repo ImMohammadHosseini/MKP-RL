@@ -176,21 +176,25 @@ class TransformerKnapsack (nn.Module):
         externalObservation: torch.tensor,
     ):
         SOD = [1]*self.config.input_encode_dim
-        generatedInstance = instGenerate.cpu().detach().numpy()
-        insts = externalObservation.squeeze(0)[:self.config.inst_obs_size+1,:-1].cpu().detach().numpy()
-        insts = insts[int(np.unique(np.where(insts == SOD)[0]))+1:]
-        generatedKnapsack = ksGenerate.cpu().detach().numpy()
-
-        ks = externalObservation.squeeze(0)[self.config.inst_obs_size+2:-1,:-1].cpu().detach().numpy()
-        inst_cosin_sim = (generatedInstance @ insts.T)/(np.expand_dims(
-            np.linalg.norm(generatedInstance),0).T @ np.expand_dims(
-                np.linalg.norm(insts, axis=1),0))
-        ks_cosin_sim = (generatedKnapsack @ ks.T)/(np.expand_dims(
-            np.linalg.norm(generatedKnapsack),0).T @ np.expand_dims(
-                np.linalg.norm(ks, axis=1),0))
-        inst_dist = self.softmax(torch.nan_to_num(torch.tensor(inst_cosin_sim)))
-        ks_dist = self.softmax(torch.nan_to_num(torch.tensor(ks_cosin_sim)))
+        inst_dist=[]; ks_dist=[]
+        for index in range(externalObservation.size(0)):
+            generatedInstance = np.expand_dims(instGenerate[index].cpu().detach().numpy(),0)
+            insts = externalObservation[index][:self.config.inst_obs_size+1,:-1].cpu().detach().numpy()
+            insts = insts[int(np.unique(np.where(insts == SOD)[0]))+1:]
+            
+            generatedKnapsack = np.expand_dims(ksGenerate[index].cpu().detach().numpy(),0)
+            ks = externalObservation[index][self.config.inst_obs_size+2:-1,:-1].cpu().detach().numpy()
+            inst_cosin_sim = (generatedInstance @ insts.T)/(np.expand_dims(
+                np.linalg.norm(generatedInstance),0).T @ np.expand_dims(
+                    np.linalg.norm(insts, axis=1),0))
+            ks_cosin_sim = (generatedKnapsack @ ks.T)/(np.expand_dims(
+                np.linalg.norm(generatedKnapsack),0).T @ np.expand_dims(
+                    np.linalg.norm(ks, axis=1),0))
+            inst_dist.append(self.softmax(torch.nan_to_num(torch.tensor(inst_cosin_sim))))
+            ks_dist.append(self.softmax(torch.nan_to_num(torch.tensor(ks_cosin_sim))))
         
+        inst_dist = torch.cat(inst_dist, 0)
+        ks_dist = torch.cat(ks_dist, 0)
         return inst_dist, ks_dist
   
     def padding(self, sequence, final_length, padding_token):
