@@ -13,8 +13,6 @@ from torch.distributions.categorical import Categorical
 from src.data_structure.state_prepare import ExternalStatePrepare
 from copy import deepcopy
 
-from torch.autograd import Variable
-from .src.base_trainer import BaseTrainer
 from .src.ppo_base import PPOBase
 
 from configs.ppo_configs import PPOConfig
@@ -188,7 +186,7 @@ class EncoderPPOTrainer_t3(PPOBase):
         extra_critic_model: torch.nn.Module,
         
     ):
-        savePath = save_path +'/RL/EncoderPPOTrainer_t2/'
+        savePath = save_path +'/RL/EncoderPPOTrainer_t3/'
         super().__init__(config, savePath, actor_model, normal_critic_model,
                          extra_critic_model)
         self.info = info

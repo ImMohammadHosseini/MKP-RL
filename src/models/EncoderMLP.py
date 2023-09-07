@@ -78,9 +78,9 @@ class EncoderMLPKnapsack (nn.Module):
         SOD = [1]*(self.config.input_encode_dim)
         EOD = [2]*(self.config.input_encode_dim)
         PAD = [0]*(self.config.input_encode_dim)
-
+        
         encoder_padding_mask = torch.ones_like(external_obs[:,:,0], device=self.device)
-        encoder_padding_mask[torch.all(external_obs == torch.tensor(PAD, device=self.device), 
+        encoder_padding_mask[torch.all(external_obs.to(self.device) == torch.tensor(PAD, device=self.device), 
                                        dim=2)] = 0
         encoder_padding_mask = encoder_padding_mask.float() 
         encoder_padding_mask = encoder_padding_mask.masked_fill(encoder_padding_mask == 0, float('-inf'))
@@ -103,8 +103,9 @@ class EncoderMLPKnapsack (nn.Module):
         #encoder_mask_sqr = encoder_mask_sqr.to(self.device)
         encoder_padding_mask = encoder_padding_mask.to(self.device)
 
-        generated = self.forward(external_obs, encoder_padding_mask=encoder_padding_mask)
-        return generated
+        firstGenerat, secondGenerat = self.forward(external_obs, encoder_padding_mask=encoder_padding_mask)
+        
+        return firstGenerat, secondGenerat, None
     
     def forward (
         self,
@@ -128,7 +129,6 @@ class EncoderMLPKnapsack (nn.Module):
         elif self.output_type == 'type3':
             return self.softmax(self.outer(flat)), None
         
-        return  self.softmax(self.outer(flat))
 
 
 class RNNMLPKnapsack (nn.Module):
