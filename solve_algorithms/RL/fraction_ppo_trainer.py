@@ -140,14 +140,19 @@ class FractionPPOTrainer_t1(PPOBase):
                 batchProbs = probs[batch]
                 batchVals = vals[batch]
                 
+                print(batchSteps.size())
+                print(self.dd)
                 firstGenerated, secondGenerated, _ = self.actor_model.generateOneStep(
                     batchObs, batchSteps, batchIntObs)
                 
-                inst_dist = Categorical(firstGenerated)
-                ks_dist = Categorical(secondGenerated)
-                inst_log_probs = inst_dist.log_prob(batchActs[:,0].squeeze())                
-                ks_log_probs = ks_dist.log_prob(batchActs[:,1].squeeze())
-                new_log_probs = (inst_log_probs+ks_log_probs)
+                new_log_probs = torch.tensor([0]*batch_size,  dtype=torch.float64, 
+                                             device=self.actor_model.device)
+                for i in range(0, self.config.generat_link_number):
+                    inst_dist = Categorical(firstGenerated[i])
+                    ks_dist = Categorical(secondGenerated[i])
+                    inst_log_probs = inst_dist.log_prob(batchActs[i,0].squeeze())                
+                    ks_log_probs = ks_dist.log_prob(batchActs[i,1].squeeze())
+                    new_log_probs[i] = (inst_log_probs+ks_log_probs).squeeze()
                 
                 newVal = criticModel(batchObs, batchIntObs) 
 
