@@ -151,9 +151,9 @@ class TransformerKnapsack (nn.Module):
                                        encod, tgt_mask=tgt_mask, 
                                        tgt_key_padding_mask=decoder_padding_mask)
         
-        print(step)
-        print(self.config.output_dim)
-        print(transformer_out.size())
+        #print(step)
+        #print(self.config.output_dim)
+        #print(transformer_out.size())
         pos = torch.cat([step.unsqueeze(0)]*self.config.output_dim,0).T.unsqueeze(1).to(self.device)
         out = transformer_out.gather(1,pos).squeeze(1)
         if self.output_type == 'type1':
