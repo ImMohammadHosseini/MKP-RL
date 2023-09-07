@@ -17,8 +17,7 @@ class KnapsackAssignmentEnv (gym.Env):
         no_change_long: int,
         knapsackObsSize: int,
         instanceObsSize: int,
-        main_batch_size: int,
-        device = "cpu",
+        device: torch.device,
     ):
         self.dim = dim
         '''self.observation_space = spaces.Dict(
@@ -53,7 +52,6 @@ class KnapsackAssignmentEnv (gym.Env):
         
         super().__init__()
         self.device = device
-        self.main_batch_size = main_batch_size
         self.info = info
         self.knapsackObsSize = knapsackObsSize
         self.instanceObsSize = instanceObsSize
@@ -73,7 +71,7 @@ class KnapsackAssignmentEnv (gym.Env):
             batchCaps = np.append(batchCaps, np.expand_dims(stateCaps, 0), 0) 
             batchWeightValues = np.append(batchWeightValues, 
                                           np.expand_dims(stateWeightValues, 0), 0)'''
-        stateCaps, stateWeightValues = self.statePrepares[0].getObservation1()
+        stateCaps, stateWeightValues = self.statePrepares.getObservation1()
         batchCaps = np.expand_dims(stateCaps, 0)
         batchWeightValues = np.expand_dims(stateWeightValues, 0)
         return {"knapsack": batchCaps, "instance_value":batchWeightValues}
@@ -84,16 +82,15 @@ class KnapsackAssignmentEnv (gym.Env):
         
     def reset (self): 
         self.no_change = 0
-        for statePrepare in self.statePrepares: statePrepare.reset()
+        #for statePrepare in self.statePrepares: statePrepare.reset()
+        self.statePrepares.reset()
         externalObservation = self._get_obs()
-        SOD = np.array([1.]*2)
-        EOD = np.array([[[2.]*2]]*self.main_batch_size)
+        SOD = np.array([[[1.]*self.dim]])
+        EOD = np.array([[[2.]*self.dim]])
         
-        shape = externalObservation["instance_value"].shape
-        sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))
-        for index in range(self.main_batch_size):
-           sod_instance_value[index] = np.insert(externalObservation[
-               "instance_value"][index], self.statePrepares[index].pad_len, SOD, axis=0)
+        
+        sod_instance_value = np.insert(externalObservation[
+            "instance_value"], self.statePrepares.pad_len, SOD, axis=1)
         
         externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
                                             np.append(externalObservation["knapsack"], 
@@ -113,14 +110,14 @@ class KnapsackAssignmentEnv (gym.Env):
     def step (self, step_actions):
         externalRewards = []
         terminated = False
-        for index in range(self.main_batch_size):
-            invalid_action_end_index = max(np.where(step_actions[index] == -1)[0], default=-1)
-            #print('max ', invalid_action_end_index)
-            if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
-            else: self.no_change=0
-            externalRewards.append(self.statePrepares[index].changeNextState(
-                step_actions[index][invalid_action_end_index+1:]))               
-            terminated = terminated or self.statePrepares[index].is_terminated()
+        #for index in range(self.main_batch_size):
+        invalid_action_end_index = max(np.where(step_actions == -1)[0], default=-1)
+        #print('max ', invalid_action_end_index)
+        if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
+        else: self.no_change=0
+        externalRewards.append(self.statePrepares.changeNextState(
+            step_actions[invalid_action_end_index+1:]))               
+        terminated = terminated or self.statePrepares.is_terminated()
         
         #terminated = terminated or self.no_change >= self.no_change_long
         
@@ -130,28 +127,23 @@ class KnapsackAssignmentEnv (gym.Env):
         #    return None, externalRewards, terminated, info
         
         externalObservation = self._get_obs()
-        SOD = np.array([1.]*2)
-        EOD = np.array([[[2.]*2]]*self.main_batch_size)
+        SOD = np.array([[[1.]*2]])
+        EOD = np.array([[[2.]*2]])
 
         shape = externalObservation["instance_value"].shape
         sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))
-        for index in range(self.main_batch_size):
-           sod_instance_value[index] = np.insert(externalObservation[
-               "instance_value"][index], self.statePrepares[index].pad_len, SOD, axis=0)
-
-        
-        externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1),
+        #for index in range(self.main_batch_size):
+        sod_instance_value = np.insert(externalObservation[
+            "instance_value"], self.statePrepares.pad_len, SOD, axis=1)
+           
+        externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
                                             np.append(externalObservation["knapsack"], 
-                                                      EOD, axis=1),axis=1)
+                                             EOD, axis=1),axis=1)
         #externalObservation = np.append(externalObservation["instance_value"], 
         #                                externalObservation["knapsack"], axis=1)
-        #print(externalObservation)
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device)
-        #print(externalObservation.size())
-        #print(externalRewards)
-
         
         return externalObservation, externalRewards, terminated, info
     
