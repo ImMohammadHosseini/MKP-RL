@@ -44,24 +44,6 @@ class PPOReplayBuffer ():
         internalObservations: Optional[torch.tensor] = None,
 
     ):
-        print('save')
-        print(observation.size())
-        print(torch.cat([observation.unsqueeze(1)]*self.link_number, 1).size())
-        print(actions)
-        print(torch.cat(actions,1).size())
-        print('probsave',torch.cat(probs,0).size())
-        print('acsave',torch.cat(values,0).size())
-
-        print(values[0].size()) 
-        print('vlen', len(values)) 
-        print('rlen',len(rewards))
-        print(rewards[0].size())
-        print(done)
-        print(steps)
-        print(len(internalObservations))
-        print(internalObservations[0].size())
-        print(torch.cat(internalObservations,0).unsqueeze(0).size())
-
         self.normal_observation.append(torch.cat([observation.unsqueeze(1)]*self.link_number, 1).cpu())
         self.normal_action.append(torch.cat(actions,1).cpu())
         self.normal_prob.append(torch.cat(probs,1).cpu())
@@ -75,12 +57,9 @@ class PPOReplayBuffer ():
             
         if not isinstance(steps, type(None)):
             self.normal_steps.append(steps.unsqueeze(0).cpu())
-        print(self.normal_done[0].size())
-        print(self.normal_steps[0].size())
 
         if not isinstance(internalObservations, type(None)):
             self.normal_internalObservation.append(torch.cat(internalObservations,0).unsqueeze(0).cpu())
-        print(self.normal_internalObservation[0].size())
 
 
     def save_extra_step (
@@ -112,16 +91,6 @@ class PPOReplayBuffer ():
             self.extra_internalObservation.append(torch.cat(internalObservations,0).unsqueeze(0).cpu())
     
     def get_normal_memory (self):
-        print(torch.cat(self.normal_observation, 0).size())
-        print(torch.cat(self.normal_action, 0).size())
-        print(torch.cat(self.normal_prob, 0).size())
-        print(torch.cat(self.normal_val, 0).size())
-        print(torch.cat(self.normal_reward, 0).size())
-        print(torch.cat(self.normal_done, 0).size())
-        print(torch.cat(self.normal_steps, 0).size())
-        print(torch.cat(self.normal_internalObservation, 0).size())
-        
-        
         try: return torch.cat(self.normal_observation, 0), \
                 torch.cat(self.normal_action, 0), \
                 torch.cat(self.normal_prob, 0), \
@@ -146,7 +115,7 @@ class PPOReplayBuffer ():
                 torch.cat(self.extra_done, 0), \
                 torch.cat(self.extra_steps, 0), \
                 torch.cat(self.extra_internalObservation, 0)
-        except: return torch.cat(self.normal_observation, 0), \
+        except: return torch.cat(self.extra_observation, 0), \
                 torch.cat(self.extra_action, 0), \
                 torch.cat(self.extra_prob, 0), \
                 torch.cat(self.extra_val, 0), \
