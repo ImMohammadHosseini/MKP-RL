@@ -82,7 +82,6 @@ class KnapsackAssignmentEnv (gym.Env):
         
     def reset (self): 
         self.no_change = 0
-        #for statePrepare in self.statePrepares: statePrepare.reset()
         self.statePrepares.reset()
         externalObservation = self._get_obs()
         SOD = np.array([[[1.]*self.dim]])
@@ -96,35 +95,27 @@ class KnapsackAssignmentEnv (gym.Env):
                                             np.append(externalObservation["knapsack"], 
                                              EOD, axis=1),axis=1)
         
-        #externalObservation = np.append(externalObservation["instance_value"], 
-        #                                externalObservation["knapsack"], axis=1)
         info = self._get_info()
 
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
-                                           device=self.device)#.unsqueeze(dim=0)
+                                           device=self.device)
 
-        #print(externalObservation.size())
         return externalObservation, info
     
     def step (self, step_actions):
-        externalRewards = []
         terminated = False
-        #for index in range(self.main_batch_size):
         invalid_action_end_index = max(np.where(step_actions == -1)[0], default=-1)
-        #print('max ', invalid_action_end_index)
         if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
         else: self.no_change=0
-        externalRewards.append(self.statePrepares.changeNextState(
-            step_actions[invalid_action_end_index+1:]))               
+        externalRewards=self.statePrepares.changeNextState(
+            step_actions[invalid_action_end_index+1:]) 
+        externalRewards = torch.tensor(externalRewards)             
         terminated = terminated or self.statePrepares.is_terminated()
         
-        #terminated = terminated or self.no_change >= self.no_change_long
         
         info = self._get_info()
 
-        #if terminated:
-        #    return None, externalRewards, terminated, info
         
         externalObservation = self._get_obs()
         SOD = np.array([[[1.]*2]])
@@ -132,15 +123,13 @@ class KnapsackAssignmentEnv (gym.Env):
 
         shape = externalObservation["instance_value"].shape
         sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))
-        #for index in range(self.main_batch_size):
         sod_instance_value = np.insert(externalObservation[
             "instance_value"], self.statePrepares.pad_len, SOD, axis=1)
            
         externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
                                             np.append(externalObservation["knapsack"], 
                                              EOD, axis=1),axis=1)
-        #externalObservation = np.append(externalObservation["instance_value"], 
-        #                                externalObservation["knapsack"], axis=1)
+        
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device)
@@ -152,16 +141,12 @@ class KnapsackAssignmentEnv (gym.Env):
         pass
     
     def final_score (self):
-        scores = []; remain_cap_ratios = []
-        for statePrepare in self.statePrepares:
-            score = 0
-            remain_cap_ratio = []
-            for ks in statePrepare.knapsacks:
-                score += ks.score_ratio()
-                remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
-            scores.append(score)
-            remain_cap_ratios.append(np.mean(remain_cap_ratio))
-        return scores, remain_cap_ratios
+        score = 0
+        remain_cap_ratio = []
+        for ks in self.statePrepares.knapsacks:
+            score += ks.score_ratio()
+            remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
+        return score, np.mean(remain_cap_ratio)
     
     
     
