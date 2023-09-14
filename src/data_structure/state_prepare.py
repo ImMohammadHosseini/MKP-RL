@@ -122,7 +122,6 @@ class ExternalStatePrepare:
         
         self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
         
-        #print(self.remainInstanceWeights)
         if self.pad_len <= 0:
             self.pad_len = 0
             self.stateWeightValues = np.append(self.remainInstanceWeights[
@@ -336,4 +335,4 @@ class ExternalStatePrepare:
                                               axis=0)
         for k in self.knapsacks: k.resetExpectedCap()
         
-        return external_reward
+        return [external_reward]

@@ -75,8 +75,9 @@ class CriticNetwork2 (nn.Module):
         self.name = name 
         self.device = device
         self.to(device)
+        #input_dim = input_dim*max_length
         #self.lstm = nn.LSTM(input_size=input_dim, hidden_size=2*input_dim, 
-        #                    num_layers=1, batch_first=True, bidirectional=True)
+        #                    num_layers=1, batch_first=True, bidirectional=True).to(device)
         #sd = self.lstm.state_dict()
         self.flatten = nn.Flatten().to(device)
         modules = []
@@ -93,7 +94,7 @@ class CriticNetwork2 (nn.Module):
     
     def forward(self, external, *args):
         #print(external.size())
-        #lstm, _ = self.lstm(external)
+        #lstm, _ = self.lstm(external.to(self.device))
         #print(self.flatten(lstm).size())
         return self.critic(self.flatten(external.to(self.device)))
     

@@ -25,12 +25,13 @@ class EncoderPPOTrainer_t2(PPOBase):
         info: List,
         save_path: str,
         config: PPOConfig,
+        dim: int, 
         actor_model: torch.nn.Module,
         normal_critic_model: torch.nn.Module,
         extra_critic_model: torch.nn.Module,
         
     ):
-        savePath = save_path +'/RL/EncoderPPOTrainer_t2/'
+        savePath = save_path +'/RL/EncoderPPOTrainer_t2'+'_dim'+str(dim)+'/'
         super().__init__(config, savePath, actor_model, normal_critic_model,
                          extra_critic_model)
         self.info = info
@@ -82,16 +83,16 @@ class EncoderPPOTrainer_t2(PPOBase):
             reward = -(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW']))
         
         elif all(eCap >= weight):
-            prompt[0,step+1] = torch.cat([inst, ks], 1).to(self.actor_model.device)
-            step += 1
             reward = +(value / np.sum(weight))
             knapSack.removeExpectedCap(weight)
             accepted_action = np.append(accepted_action,
                                          [[inst_act, ks_act]], 0)[1:]
+            
         else:
             reward = -(value / np.sum(weight))
             
-        return torch.tensor([reward]).unsqueeze(0)
+        reward = torch.tensor([reward]).unsqueeze(0)    
+        return reward , accepted_action, step, prompt
     
     def train (
         self, 
@@ -135,40 +136,47 @@ class EncoderPPOTrainer_t2(PPOBase):
 
             advantage = advantage.to(self.actor_model.device)
             for batch in batches:
-                batchObs = obs[batch]
-                batchActs = acts[batch]
-                batchProbs = probs[batch].squeeze()
-                batchVals = vals[batch]
+                batchObs = obs[batch].detach()
+                batchActs = acts[batch].detach()
+                batchProbs = probs[batch].squeeze().detach()
+                batchVals = vals[batch].detach()
+                batchAdvs = advantage[batch].detach()
+                
+                batchObs.requires_grad = True
+                #batchActs.requires_grad = True
+                batchProbs.requires_grad = True
+                batchVals.requires_grad = True
+                batchAdvs.requires_grad = True
+                
                 
                 firstGenerated, secondGenerated, _ = self.actor_model.generateOneStep(
                     batchObs, None, None)
                 
                 inst_dist = Categorical(firstGenerated)
                 ks_dist = Categorical(secondGenerated)
-                inst_log_probs = inst_dist.log_prob(batchActs[:,0].squeeze())                
-                ks_log_probs = ks_dist.log_prob(batchActs[:,1].squeeze())
+                inst_log_probs = inst_dist.log_prob(batchActs[:,:,0].squeeze())                
+                ks_log_probs = ks_dist.log_prob(batchActs[:,:,1].squeeze())
                 new_log_probs = (inst_log_probs+ks_log_probs)
                 
                 newVal = criticModel(batchObs)
                 
                 prob_ratio = new_log_probs.exp() / batchProbs.exp()
-                weighted_probs = advantage[batch] * prob_ratio
+                weighted_probs = batchAdvs * prob_ratio
                 weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
-                            1+self.config.cliprange)*advantage[batch]
+                            1+self.config.cliprange)*batchAdvs
                 actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
-                returns = advantage[batch].unsqueeze(dim=1) + batchVals
+                returns = batchAdvs.unsqueeze(dim=1) + batchVals
             
                 critic_loss = (returns-newVal)**2
                 critic_loss = torch.mean(critic_loss)
 
-                total_loss = (actor_loss + 0.5*critic_loss).detach()
-                total_loss.requires_grad=True
+                total_loss = actor_loss + 0.5*critic_loss
                 
                 self.actor_optimizer.zero_grad()
                 criticOptim.zero_grad()
                 total_loss.backward()
                 self.actor_optimizer.step()
-                self.normal_critic_optimizer.step()
+                criticOptim.step()
 
 
         self.memory.reset_normal_memory() if mode == 'normal' else \
@@ -181,12 +189,13 @@ class EncoderPPOTrainer_t3(PPOBase):
         info: List,
         save_path: str,
         config: PPOConfig,
+        dim: int, 
         actor_model: torch.nn.Module,
         normal_critic_model: torch.nn.Module,
         extra_critic_model: torch.nn.Module,
         
     ):
-        savePath = save_path +'/RL/EncoderPPOTrainer_t3/'
+        savePath = save_path +'/RL/EncoderPPOTrainer_t3+'+'_dim'+str(dim)+'/'
         super().__init__(config, savePath, actor_model, normal_critic_model,
                          extra_critic_model)
         self.info = info
@@ -205,7 +214,7 @@ class EncoderPPOTrainer_t3(PPOBase):
         act_dist = Categorical(firstGenerated)
         act = act_dist.sample()
         log_prob = act_dist.log_prob(act).unsqueeze(0).unsqueeze(0)
-        return act.unsqueeze(0).unsqueeze(0), log_prob
+        return act.unsqueeze(0), log_prob
     
     
     def normal_reward (
@@ -234,10 +243,11 @@ class EncoderPPOTrainer_t3(PPOBase):
             knapSack.removeExpectedCap(weight)
             accepted_action = np.append(accepted_action,
                                          [[inst_act, ks_act]], 0)[1:]
+
         else:
             reward = -(value / np.sum(weight))
-            
-        return torch.tensor([reward]).unsqueeze(0)
+        reward = torch.tensor([reward]).unsqueeze(0)    
+        return reward , accepted_action, step, prompt
     
     def train (
         self, 
@@ -259,6 +269,9 @@ class EncoderPPOTrainer_t3(PPOBase):
             criticModel = self.extra_critic_model
             criticOptim = self.extra_critic_optimizer
 
+        criticModel = self.normal_critic_model
+        criticOptim = self.normal_critic_optimizer
+        
         obs = memoryObs.squeeze().to(self.actor_model.device)
         acts = memoryAct.to(self.actor_model.device)
         probs = memoryPrb.to(self.actor_model.device)
@@ -281,11 +294,18 @@ class EncoderPPOTrainer_t3(PPOBase):
 
             advantage = advantage.to(self.actor_model.device)
             for batch in batches:
-                batchObs = obs[batch]
-                batchActs = acts[batch]
-                batchProbs = probs[batch].squeeze()
-                batchVals = vals[batch]
-
+                batchObs = obs[batch].detach()
+                batchActs = acts[batch].detach()
+                batchProbs = probs[batch].squeeze().detach()
+                batchVals = vals[batch].detach()
+                batchAdvs = advantage[batch].detach()
+                
+                batchObs.requires_grad = True
+                #batchActs.requires_grad = True
+                batchProbs.requires_grad = True
+                batchVals.requires_grad = True
+                batchAdvs.requires_grad = True
+                
                 firstGenerated, _, _ = self.actor_model.generateOneStep(
                     batchObs, None, None)
                 
@@ -295,23 +315,23 @@ class EncoderPPOTrainer_t3(PPOBase):
                 newVal = criticModel(batchObs)
                 
                 prob_ratio = new_log_probs.exp() / batchProbs.exp()
-                weighted_probs = advantage[batch] * prob_ratio
+                weighted_probs = batchAdvs * prob_ratio
                 weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
-                            1+self.config.cliprange)*advantage[batch]
+                            1+self.config.cliprange)*batchAdvs
                 actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
-                returns = advantage[batch].unsqueeze(dim=1) + batchVals
+                returns = batchAdvs.unsqueeze(dim=1) + batchVals
             
                 critic_loss = (returns-newVal)**2
                 critic_loss = torch.mean(critic_loss)
 
-                total_loss = (actor_loss + 0.5*critic_loss).detach()
-                total_loss.requires_grad=True
+                total_loss = actor_loss + 0.5*critic_loss
+                #total_loss.requires_grad=True
                 
                 self.actor_optimizer.zero_grad()
                 criticOptim.zero_grad()
                 total_loss.backward()
                 self.actor_optimizer.step()
-                self.normal_critic_optimizer.step()
+                criticOptim.step()
 
 
         self.memory.reset_normal_memory() if mode == 'normal' else \
