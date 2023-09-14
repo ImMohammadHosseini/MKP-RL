@@ -61,8 +61,8 @@ class EncoderMLPKnapsack (nn.Module):
         self.mlp = nn.Sequential(*modules).to(self.device)'''
         
         if self.output_type == 'type2':  
-            self.instance_outer = nn.Linear(self.config.output_dim//2, self.config.inst_obs_size, device=self.device)
-            self.knapsack_outer = nn.Linear(self.config.output_dim//2, self.config.knapsack_obs_size, device=self.device)
+            self.instance_outer = nn.Linear(input_dim//2, self.config.inst_obs_size, device=self.device)
+            self.knapsack_outer = nn.Linear(input_dim//2, self.config.knapsack_obs_size, device=self.device)
         elif self.output_type == 'type3':
             self.outer = nn.Linear(input_dim, 
                                    self.config.inst_obs_size*self.config.knapsack_obs_size, device=self.device)
@@ -123,8 +123,9 @@ class EncoderMLPKnapsack (nn.Module):
         flat = self.flatten(encod)
 
         if self.output_type == 'type2':
-            return self.softmax(self.instance_outer(flat[:,:self.config.output_dim//2])), \
-                self.softmax(self.knapsack_outer(flat[:,self.config.output_dim//2:]))
+            flat_dim = self.config.max_length * self.config.input_encode_dim
+            return self.softmax(self.instance_outer(flat[:,:flat_dim//2])), \
+                self.softmax(self.knapsack_outer(flat[:,flat_dim//2:]))
                 
         elif self.output_type == 'type3':
             return self.softmax(self.outer(flat)), None
