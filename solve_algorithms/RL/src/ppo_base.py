@@ -64,17 +64,18 @@ class PPOBase():
         accepted_action = np.array([[-1]*2]*self.config.generat_link_number, dtype= int)
         actions = []; probs = []; values = []; rewards = []; internalObservations = []
         steps = []; prompt = None
-        step = torch.tensor([0], dtype=torch.int64)
+        step = torch.tensor([1], dtype=torch.int64)
         
         for i in range(0, self.config.generat_link_number):
             firstGenerated, secondGenerated, prompt = self.actor_model.generateOneStep(
                 externalObservation, step, prompt)
+            steps.append(deepcopy(step))
             act, prob = self._choose_actions(firstGenerated, secondGenerated)
             actions.append(act.unsqueeze(0)); probs.append(prob)
             internalReward, accepted_action, step, prompt = self.normal_reward(
                 act, accepted_action, step, prompt, statePrepares)
             
-            steps.append(deepcopy(step)); internalObservations.append(prompt); 
+            internalObservations.append(prompt)
             rewards.append(internalReward)
             values.append(self.normal_critic_model(externalObservation, prompt))
         steps = torch.cat(steps,0)

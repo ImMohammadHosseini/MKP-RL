@@ -246,7 +246,6 @@ class FractionSACTrainer(BaseTrainer):
         self,
         externalObservation: torch.tensor,
         statePrepares: np.ndarray,
-        done: Optional[torch.tensor] = None,
     ):
         actions = torch.zeros((self.main_batch_size,0,2), dtype=torch.int64, device=self.device)
         rewards = torch.zeros((self.main_batch_size,0), dtype=torch.float64, device=self.device)

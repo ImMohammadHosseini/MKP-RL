@@ -86,8 +86,9 @@ class FractionPPOTrainer_t1(PPOBase):
                                          [[inst_act, ks_act]], 0)[1:]
         else:
             reward = -(value / np.sum(weight))
-            
-        return torch.tensor([reward]).unsqueeze(0)
+        print(prompt)
+        reward = torch.tensor([reward]).unsqueeze(0)    
+        return reward , accepted_action, step, prompt
     
     def train (
         self, 
@@ -254,7 +255,8 @@ class FractionPPOTrainer_t2(PPOBase):
         else:
             reward = -(value / np.sum(weight))
             
-        return torch.tensor([reward]).unsqueeze(0)
+        reward = torch.tensor([reward]).unsqueeze(0)    
+        return reward , accepted_action, step, prompt
     
     def train (
         self, 
@@ -349,12 +351,13 @@ class FractionPPOTrainer_t3(PPOBase):
         info: List,
         save_path: str,
         config: PPOConfig,
+        dim: int, 
         actor_model: torch.nn.Module,
         normal_critic_model: torch.nn.Module,
         extra_critic_model: torch.nn.Module,
         
     ):
-        savePath = save_path +'/RL/FractionPPOTrainer_t3/'
+        savePath = save_path +'/RL/FractionPPOTrainer_t3'+'_dim'+str(dim)+'/'
         super().__init__(config, savePath, actor_model, normal_critic_model,
                          extra_critic_model)
         self.info = info
@@ -400,7 +403,7 @@ class FractionPPOTrainer_t3(PPOBase):
             reward = -(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW']))
         
         elif all(eCap >= weight):
-            prompt[0,step+1] = torch.cat([inst, ks], 1).to(self.actor_model.device)
+            prompt[0,step] = torch.cat([inst, ks], 1).to(self.actor_model.device)
             step += 1
             reward = +(value / np.sum(weight))
             knapSack.removeExpectedCap(weight)
@@ -409,7 +412,8 @@ class FractionPPOTrainer_t3(PPOBase):
         else:
             reward = -(value / np.sum(weight))
             
-        return torch.tensor([reward]).unsqueeze(0)
+        reward = torch.tensor([reward]).unsqueeze(0)    
+        return reward , accepted_action, step, prompt
     
     def train (
         self, 
@@ -455,12 +459,21 @@ class FractionPPOTrainer_t3(PPOBase):
 
             advantage = advantage.to(self.actor_model.device)
             for batch in batches:
-                batchObs = obs[batch]
-                batchIntObs = intObs[batch]
-                batchActs = acts[batch]
-                batchSteps = stps[batch]
-                batchProbs = probs[batch]
-                batchVals = vals[batch]
+                batchObs = obs[batch].detach()
+                batchIntObs = intObs[batch].detach()
+                batchActs = acts[batch].detach()
+                batchSteps = stps[batch].detach()
+                batchProbs = probs[batch].detach()
+                batchVals = vals[batch].detach()
+                batchAdvs = advantage[batch].detach()
+
+                batchObs.requires_grad = True
+                batchIntObs.requires_grad = True
+                #batchActs.requires_grad = True
+                #batchSteps.requires_grad = True
+                batchProbs.requires_grad = True
+                batchVals.requires_grad = True
+                batchAdvs.requires_grad = True
                 
                 firstGenerated, _, _ = self.actor_model.generateOneStep(
                     batchObs, batchSteps, batchIntObs)
@@ -469,23 +482,21 @@ class FractionPPOTrainer_t3(PPOBase):
                 new_log_probs = act_dist.log_prob(batchActs.squeeze())
                 newVal = criticModel(batchObs, batchIntObs) 
                 prob_ratio = new_log_probs.exp() / batchProbs.exp()
-                weighted_probs = advantage[batch] * prob_ratio
+                weighted_probs = batchAdvs * prob_ratio
                 weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.config.cliprange,
-                            1+self.config.cliprange)*advantage[batch]
+                            1+self.config.cliprange)*batchAdvs
                 actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
-                returns = advantage[batch] + batchVals
+                returns = batchAdvs + batchVals
                 
                 critic_loss = (returns-newVal.squeeze())**2
                 critic_loss = torch.mean(critic_loss)
                 
-                total_loss = (actor_loss + 0.5*critic_loss).detach()
-                total_loss.requires_grad=True
-                
+                total_loss = actor_loss + 0.5*critic_loss
                 self.actor_optimizer.zero_grad()
                 criticOptim.zero_grad()
                 total_loss.backward()
                 self.actor_optimizer.step()
-                self.normal_critic_optimizer.step()
+                criticOptim.step()
 
         self.memory.reset_normal_memory() if mode == 'normal' else \
             self.memory.reset_extra_memory()

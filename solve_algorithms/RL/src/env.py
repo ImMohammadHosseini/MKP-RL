@@ -118,8 +118,8 @@ class KnapsackAssignmentEnv (gym.Env):
 
         
         externalObservation = self._get_obs()
-        SOD = np.array([[[1.]*2]])
-        EOD = np.array([[[2.]*2]])
+        SOD = np.array([[[1.]*self.dim]])
+        EOD = np.array([[[2.]*self.dim]])
 
         shape = externalObservation["instance_value"].shape
         sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))

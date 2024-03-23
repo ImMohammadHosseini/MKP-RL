@@ -50,7 +50,7 @@ class TransformerKnapsack (nn.Module):
         )
         self.encoder = TransformerEncoder(
             encoder_layers, self.config.num_encoder_layers
-        )
+        ).to(self.device)
         decoder_layers = TransformerDecoderLayer(
             d_model= self.config.output_dim,
             nhead=self.config.nhead,
@@ -60,7 +60,7 @@ class TransformerKnapsack (nn.Module):
         )
         self.decoder = TransformerDecoder(
             decoder_layers, self.config.num_decoder_layers
-        )
+        ).to(self.device)
         
         if self.output_type == 'type1':
             pass

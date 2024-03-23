@@ -19,7 +19,7 @@ class EncoderMLPKnapsack (nn.Module):
         config,
         output_type,
         device: torch.device = torch.device("cpu"),
-        hidden_dims: List = [64],
+        hidden_dims: List = [16,32,64,32],
         name = 'transformerEncoderMLP',
     ):
         super().__init__()
@@ -30,13 +30,13 @@ class EncoderMLPKnapsack (nn.Module):
         self.generate_link_number = self.config.link_number
     
         
-        #self.en_embed = nn.Linear(self.config.input_dim, self.config.output_dim).to(self.device)
+        self.en_embed = nn.Linear(self.config.input_encode_dim, self.config.output_dim).to(self.device)
         
-        self.en_position_encode = PositionalEncoding(self.config.input_encode_dim, 
+        self.en_position_encode = PositionalEncoding(self.config.output_dim, 
                                                      self.config.max_length,
                                                      self.device).to(self.device)
         encoder_layers = TransformerEncoderLayer(
-            d_model= self.config.input_encode_dim,
+            d_model= self.config.output_dim,
             nhead=self.config.nhead,
             dim_feedforward=self.config.d_hid,
             dropout=self.config.dropout,
@@ -49,8 +49,8 @@ class EncoderMLPKnapsack (nn.Module):
         self.flatten = nn.Flatten().to(self.device)
         
         modules = []
-        input_dim = (self.config.max_length) * self.config.input_encode_dim
-        '''for h_dim in hidden_dims:
+        input_dim = (self.config.max_length) * self.config.output_dim
+        for h_dim in hidden_dims:
             modules.append(
                 nn.Sequential(
                     nn.Linear(input_dim, out_features=h_dim),
@@ -58,7 +58,7 @@ class EncoderMLPKnapsack (nn.Module):
             )
             input_dim = h_dim
         #modules.append(nn.Sequential(nn.Linear(input_dim, self.config.output_dim)))    
-        self.mlp = nn.Sequential(*modules).to(self.device)'''
+        self.mlp = nn.Sequential(*modules).to(self.device)
         
         if self.output_type == 'type2':  
             self.instance_outer = nn.Linear(input_dim//2, self.config.inst_obs_size, device=self.device)
@@ -115,12 +115,13 @@ class EncoderMLPKnapsack (nn.Module):
     ):
         #print(external_obs)
         external_obs = external_obs.to(torch.float32)
-        #ext_embedding = self.en_embed(external_obs)
-        encod = self.encoder(self.en_position_encode(external_obs),
+        ext_embedding = self.en_embed(external_obs)
+        encod = self.encoder(self.en_position_encode(ext_embedding),
                              mask=encoder_mask, 
                              src_key_padding_mask=encoder_padding_mask)
         
         flat = self.flatten(encod)
+        flat = self.mlp(flat)
 
         if self.output_type == 'type2':
             flat_dim = self.config.max_length * self.config.input_encode_dim

@@ -82,7 +82,7 @@ class EncoderMlpSACTrainer(BaseTrainer):
         self.alpha = self.log_alpha.to(self.device)
         self.alpha_optimizer = AdamW([self.log_alpha], lr=self.config.alpha_lr)
     
-        self.savePath = save_path +'/RL/FractionSACTrainer/'
+        self.savePath = save_path +'/RL/EncoderMlpSACTrainer/'
         if path.exists(self.savePath):
             self.load_models()
         
@@ -159,19 +159,19 @@ class EncoderMlpSACTrainer(BaseTrainer):
         z = z.float() * 1e-8
         generatedAction = generatedAction + z
         acts = torch.zeros((0,1), dtype=torch.int)
-        probs = torch.zeros((0,2), dtype=torch.float)
+        probs = torch.zeros((0,1), dtype=torch.float)
         log_probs = torch.zeros((0,1), dtype=torch.float)
         for ga in generatedAction:
             act_dist = Categorical(ga)
             act = act_dist.sample() 
             
             acts = torch.cat([acts, act.unsqueeze(0).unsqueeze(0).cpu()], dim=0)
-            probs = torch.cat([probs, ga[:,acts.squeeze()].unsqueeze(0).unsqueeze(0).cpu()], dim=0)
+            probs = torch.cat([probs, ga[act].unsqueeze(0).unsqueeze(0).cpu()], dim=0)
             log_probs = torch.cat([log_probs, act_dist.log_prob(act).unsqueeze(0).unsqueeze(0).cpu()], dim=0)
 
         return acts, probs.to(self.device), log_probs.to(self.device)
     
-    def reward (
+    def internal_reward (
         self,
         action: torch.tensor,
         accepted_action: np.ndarray,
@@ -190,7 +190,7 @@ class EncoderMlpSACTrainer(BaseTrainer):
             value = statePrepares[index].getObservedInstValue(inst_act)
 
             if inst_act < statePrepares[index].pad_len: 
-                    rewards.append(-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
+                    rewards.append(0)#-(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW'])))
                     continue
             
             if all(eCap >= weight):
@@ -199,7 +199,7 @@ class EncoderMlpSACTrainer(BaseTrainer):
                 accepted_action[index] = np.append(accepted_action[index][1:],
                                                    [[inst_act, ks_act]], 0)
             else:
-                rewards.append(-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
+                rewards.append(0)#-(value / np.sum(weight)))#-self.info['VALUE_LOW'])
         #print(rewards)
         return torch.tensor(rewards, device=self.device).unsqueeze(0)
     
@@ -210,7 +210,7 @@ class EncoderMlpSACTrainer(BaseTrainer):
     ):
         accepted_action = np.array([[[-1]*2]*1]*self.main_batch_size, dtype= int)
         generatedAction = self.actor_model.generateOneStep(externalObservation)
-        act, prob = self._choose_actions(generatedAction)
+        act, _, _ = self._choose_actions(generatedAction)
         internalReward = self.internal_reward(act, accepted_action, statePrepares)
         #print(accepted_action)
         return act, accepted_action, internalReward
@@ -218,6 +218,7 @@ class EncoderMlpSACTrainer(BaseTrainer):
     def train (
         self, 
     ):
+        #print(self._transitions_stored)
         if self._transitions_stored < self.config.sac_batch_size :
             return
         
@@ -248,10 +249,10 @@ class EncoderMlpSACTrainer(BaseTrainer):
         next_q_values = rewards + ~dones * self.config.discount_rate*soft_state_values
         
         soft_q1_values = self.critic_local1.generateOneStep(externalObservation)
-        soft_q1_values = soft_q1_values.gather(1, actions).squeeze(-1)
+        soft_q1_values = soft_q1_values.gather(1, actions.unsqueeze(1)).squeeze(-1)
         
         soft_q2_values = self.critic_local2.generateOneStep(externalObservation)
-        soft_q2_values = soft_q2_values.gather(1, actions).squeeze(-1)
+        soft_q2_values = soft_q2_values.gather(1, actions.unsqueeze(1)).squeeze(-1)
         
         critic1_square_error = torch.nn.MSELoss(reduction="none")(soft_q1_values, next_q_values)
         critic2_square_error = torch.nn.MSELoss(reduction="none")(soft_q2_values, next_q_values)
