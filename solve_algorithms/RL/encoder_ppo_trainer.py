@@ -78,7 +78,6 @@ class EncoderPPOTrainer_t2(PPOBase):
         eCap = knapSack.getExpectedCap()
         weight = statePrepares.getObservedInstWeight(inst_act)
         value = statePrepares.getObservedInstValue(inst_act)
-            
         if inst_act < statePrepares.pad_len or inst_act in accepted_action[:,0]: 
             reward = -(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW']))
         
@@ -234,19 +233,19 @@ class EncoderPPOTrainer_t3(PPOBase):
         eCap = knapSack.getExpectedCap()
         weight = statePrepares.getObservedInstWeight(inst_act)
         value = statePrepares.getObservedInstValue(inst_act)
-            
+        
         if inst_act < statePrepares.pad_len: 
-            reward = -(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW']))
+            reward = -((5*self.info['VALUE_HIGH'])/(5*self.info['WEIGHT_LOW']))
         
         elif all(eCap >= weight):
-            reward = +(value / np.sum(weight))
+            reward = +((5*value) / np.sum(weight))
             knapSack.removeExpectedCap(weight)
             accepted_action = np.append(accepted_action,
                                          [[inst_act, ks_act]], 0)[1:]
 
         else:
-            reward = -(value / np.sum(weight))
-        reward = torch.tensor([reward]).unsqueeze(0)    
+            reward = -((5*value) / np.sum(weight))
+        reward = torch.tensor([reward]).unsqueeze(0)   
         return reward , accepted_action, step, prompt
     
     def train (
@@ -310,6 +309,7 @@ class EncoderPPOTrainer_t3(PPOBase):
                     batchObs, None, None)
                 
                 act_dist = Categorical(firstGenerated)
+                entropy_loss = act_dist.entropy().mean()
                 
                 new_log_probs = act_dist.log_prob(batchActs.squeeze().to(self.actor_model.device))
                 newVal = criticModel(batchObs)
@@ -324,7 +324,7 @@ class EncoderPPOTrainer_t3(PPOBase):
                 critic_loss = (returns-newVal)**2
                 critic_loss = torch.mean(critic_loss)
 
-                total_loss = actor_loss + 0.5*critic_loss
+                total_loss = actor_loss + 0.5*critic_loss# + 0.1*entropy_loss
                 #total_loss.requires_grad=True
                 
                 self.actor_optimizer.zero_grad()
