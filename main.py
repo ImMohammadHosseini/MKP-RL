@@ -296,6 +296,12 @@ def ppo_train_extra (env, ppoTrainer, flags, statePrepareList, greedyScores,
                   'time_steps', n_steps, 'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios),
                   'interanl_reward %.3f'%float(episodeNormalReward), 'avg reward %.3f' %avg_reward)
     
+        if i % 1000 == 0:
+            results_dict = {'reward': reward_history, 'score': score_history, 'remain_cap': remain_cap_history}
+            with open('train_results/'+algorithm_type+'_'+output_type+'_dim'+str(opts.dim)+'.pickle', 'wb') as file:
+                pickle.dump(results_dict, file)
+            
+    
     x = [i+1 for i in range(len(reward_history))]
     figure_file = 'plots/'+algorithm_type+'_'+output_type+'_dim'+str(opts.dim)+'_reward.png'
     title = 'Running average of previous 50 scores'
@@ -315,9 +321,7 @@ def ppo_train_extra (env, ppoTrainer, flags, statePrepareList, greedyScores,
     label = 'remain caps'
     plot_learning_curve(x, remain_cap_history, figure_file, title, label)
     
-    results_dict = {'reward': reward_history, 'score': score_history, 'remain_cap': remain_cap_history}
-    with open('train_results/'+algorithm_type+'_'+output_type+'_dim'+str(opts.dim)+'.pickle', 'wb') as file:
-        pickle.dump(results_dict, file)
+    
 
 def ppo_test(env, ppoTrainer, flags, statePrepareList, greedyScores,
                      output_type, algorithm_type):
