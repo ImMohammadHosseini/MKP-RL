@@ -16,7 +16,7 @@ class TransformerKnapsackConfig (object):
         problem_dim: int,
         device,
         link_number:int,
-        output_dim: int = 2,
+        output_dim: int,
         nhead: int = 1,
         d_hid: int = 8,
         num_encoder_layers: int = 6,

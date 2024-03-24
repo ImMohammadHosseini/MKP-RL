@@ -49,7 +49,7 @@ parser.add_option("-V", "--variation", action="store", dest="var",
                   default='multiObjectiveDimentional',
                   help="variation is multipleKnapsack, multi_dimentional, \
                       multiObjectiveDimentional")
-parser.add_option("-D", "--dim", action="store", dest="dim", default=1)
+parser.add_option("-D", "--dim", action="store", dest="dim", default=5)
 parser.add_option("-K", "--knapsaks", action="store", dest="kps", default=2)
 parser.add_option("-N", "--instances", action="store", dest="instances", 
                   default=15)
@@ -74,10 +74,10 @@ N_TRAIN_STEPS = 100000
 #NEW_PROBLEM_PER_EPISODE = 10
 N_TEST_STEPS = 10
 SAVE_PATH = 'pretrained/save_models'
-DATA_PATH = 'dataset/'
+DATA_PATH = 'dataset/dim_'+str(opts.dim)+'/'
 
 PPO_ALGORITHMS = ['EncoderPPOTrainer', 'FractionPPOTrainer', 'WholePPOTrainer']
-PPO_ALGORITHMS = ['SACTrainer', 'FractionSACTrainer']
+SAC_ALGORITHMS = ['SACTrainer', 'FractionSACTrainer']
 OTHER_ALGORITHMS = ['RandomSelect', 'GreedySelect']
 INPUT_TYPES = ['type_1']
 OUTPUT_TYPES = ['type_1', 'type_2', 'type_3']
@@ -138,7 +138,7 @@ def greedyAlgorithm (statePrepareList):
 def ppoInitializer (output_type, algorithm_type):
     ppoConfig = PPOConfig(generat_link_number=1) if algorithm_type == 'EncoderPPOTrainer' else PPOConfig()
     modelConfig = TransformerKnapsackConfig(INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE,
-                                            opts.dim, DEVICE, ppoConfig.generat_link_number)
+                                            opts.dim, DEVICE, ppoConfig.generat_link_number,opts.dim+1)
     
     env = KnapsackAssignmentEnv(modelConfig.input_encode_dim, INFOS, NO_CHANGE_LONG, 
                                 KNAPSACK_OBS_SIZE, INSTANCE_OBS_SIZE,device=DEVICE)
@@ -262,7 +262,7 @@ def ppo_train_extra (env, ppoTrainer, flags, statePrepareList, greedyScores,
                 episodeNormalReward += torch.cat(rewards,0).sum()
                 externalObservation_, extraReward, done, info = env.step(accepted_action)
                 
-                if episodeNormalReward < -20: done = True
+                if episodeNormalReward < -10: done = True
                 ppoTrainer.memory.save_normal_step(externalObservation, actions, \
                                                    probs, values, rewards, done, \
                                                    steps, internalObservations)
@@ -270,14 +270,14 @@ def ppo_train_extra (env, ppoTrainer, flags, statePrepareList, greedyScores,
                 n_steps += addition_steps
                 if n_steps % ppoTrainer.config.normal_batch == 0:
                     ppoTrainer.train('normal')
-                if ~(accepted_action == [-1,-1]).all():
+                '''if ~(accepted_action == [-1,-1]).all():
                     #print(accepted_action)
                     n_steps1 += addition_steps
                     ppoTrainer.memory.save_extra_step(externalObservation, actions, \
                                                       probs, values, [extraReward], \
                                                       done, steps, internalObservations)   
                     if n_steps1 % ppoTrainer.config.extra_batch == 0:
-                        ppoTrainer.train('extra')
+                        ppoTrainer.train('extra')'''
                 externalObservation = externalObservation_
                 
             scores, remain_cap_ratios = env.final_score()
@@ -296,29 +296,91 @@ def ppo_train_extra (env, ppoTrainer, flags, statePrepareList, greedyScores,
                   'time_steps', n_steps, 'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios),
                   'interanl_reward %.3f'%float(episodeNormalReward), 'avg reward %.3f' %avg_reward)
     
+        if i % 1000 == 0:
+            results_dict = {'reward': reward_history, 'score': score_history, 'remain_cap': remain_cap_history}
+            with open('train_results/'+algorithm_type+'_'+output_type+'_dim'+str(opts.dim)+'.pickle', 'wb') as file:
+                pickle.dump(results_dict, file)
+            
+    
     x = [i+1 for i in range(len(reward_history))]
-    figure_file = 'plots/'+algorithm_type+'_'+output_type+'_'+str(opts.dim)+'_reward.png'
+    figure_file = 'plots/'+algorithm_type+'_'+output_type+'_dim'+str(opts.dim)+'_reward.png'
     title = 'Running average of previous 50 scores'
     label = 'scores'
     plot_learning_curve(x, reward_history, figure_file, title, label)
     
     
     x = [i+1 for i in range(len(score_history))]
-    figure_file = 'plots/'+algorithm_type+'_'+output_type+'_'+str(opts.dim)+'_score_per_greedyScore.png'
+    figure_file = 'plots/'+algorithm_type+'_'+output_type+'_dim'+str(opts.dim)+'_score_per_greedyScore.png'
     title = 'Running average of previous 50 scores'
     label = 'scores'
     plot_learning_curve(x, score_history, figure_file, title, label)
     
     x = [i+1 for i in range(len(remain_cap_history))]
-    figure_file = 'plots/'+algorithm_type+'_'+output_type+'_'+str(opts.dim)+'_remain_cap_ratio.png'
+    figure_file = 'plots/'+algorithm_type+'_'+output_type+'_dim'+str(opts.dim)+'_remain_cap_ratio.png'
     title = 'Running average of previous 50 remain caps'
     label = 'remain caps'
     plot_learning_curve(x, remain_cap_history, figure_file, title, label)
     
-    results_dict = {'reward': reward_history, 'score': score_history, 'remain_cap': remain_cap_history}
-    with open('train_results/'+algorithm_type+'_'+output_type+'_'+str(opts.dim)+'.pickle', 'wb') as file:
-        pickle.dump(results_dict, file)
-                
+    
+
+def ppo_test(env, ppoTrainer, flags, statePrepareList, greedyScores,
+                     output_type, algorithm_type):
+    statePrepares = np.array(statePrepareList)
+    
+    greedyScores = np.array(greedyScores)
+    #best_reward = -1e4
+    #reward_history = []; score_history = []; remain_cap_history = []
+    #n_steps = 0
+    #n_steps1 = 0
+    #addition_steps = ppoTrainer.config.generat_link_number if flags[0] else 1
+    #for i in tqdm(range(N_TRAIN_STEPS)):
+    for batch in range(len(statePrepares)):
+        env.setStatePrepare(statePrepares[0])
+
+        externalObservation, _ = env.reset()
+        done = False
+        #episodeNormalReward = torch.tensor (0.0)
+        while not done:
+            internalObservations, actions, accepted_action, probs, values, \
+                rewards, steps = ppoTrainer.make_steps(externalObservation, 
+                                                       env.statePrepares, flags[0], flags[1])
+            #print(torch.cat(rewards,0).sum())
+            #episodeNormalReward += torch.cat(rewards,0).sum()
+            externalObservation_, extraReward, done, info = env.step(accepted_action)
+            
+            #if episodeNormalReward < -10: done = True
+            #ppoTrainer.memory.save_normal_step(externalObservation, actions, \
+            #                                   probs, values, rewards, done, \
+            #                                   steps, internalObservations)
+            
+            #n_steps += addition_steps
+            #if n_steps % ppoTrainer.config.normal_batch == 0:
+            #    ppoTrainer.train('normal')
+            '''if ~(accepted_action == [-1,-1]).all():
+                #print(accepted_action)
+                n_steps1 += addition_steps
+                ppoTrainer.memory.save_extra_step(externalObservation, actions, \
+                                                  probs, values, [extraReward], \
+                                                  done, steps, internalObservations)   
+                if n_steps1 % ppoTrainer.config.extra_batch == 0:
+                    ppoTrainer.train('extra')'''
+            externalObservation = externalObservation_
+            
+        scores, remain_cap_ratios = env.final_score()
+        batch_score_per_grredy = scores/greedyScores[batch]
+        
+        #reward_history.append(float(episodeNormalReward))
+        #score_history.append(batch_score_per_grredy)
+        #remain_cap_history.append(remain_cap_ratios)
+        #avg_reward = np.mean(reward_history[-50:])
+        #avg_score = np.mean(score_history[-50:])
+        
+        #if avg_reward > best_reward:
+        #    best_reward  = avg_reward
+        #    ppoTrainer.save_models()
+        print('score %.3f' % batch_score_per_grredy, 
+              'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios))
+
 if __name__ == '__main__':
     
     statePrepareList = dataInitializer()
@@ -326,7 +388,11 @@ if __name__ == '__main__':
     
     #for algorithm_type in PPO_ALGORITHMS:
     #    for output_type in OUTPUT_TYPES:False, False
-    env, ppoTrainer, flags = ppoInitializer ('type2', 'EncoderPPOTrainer')
-    ppo_train_extra(env, ppoTrainer, flags, statePrepareList, greedyScores, 
-                    'type2', 'EncoderPPOTrainer')
+    env, ppoTrainer, flags = ppoInitializer ('type3', 'EncoderPPOTrainer')
+    if opts.mode == 'train':
+        ppo_train_extra(env, ppoTrainer, flags, statePrepareList, greedyScores, 
+                        'type3', 'EncoderPPOTrainer')
+    elif opts.mode == 'test':
+        ppo_test(env, ppoTrainer, flags, statePrepareList, greedyScores, 
+                        'type3', 'EncoderPPOTrainer')
     

@@ -80,12 +80,12 @@ class ExternalStatePrepare:
     def reset (self) -> None:
         self.pad_len = 0
         self.ks_order = None
-        #shuffle = np.random.permutation(len(self.weights))
+        shuffle = np.random.permutation(len(self.weights))
         self.remainInstanceWeights = self.weights#[shuffle]
         self.remainInstanceValues = self.values#[shuffle]
-        #shuffle = np.random.permutation(len(self.knapsacks))
+        shuffle = np.random.permutation(len(self.knapsacks))
         for k in self.knapsacks: k.reset()
-        #self.knapsacks = list(np.array(self.knapsacks)[shuffle])
+        self.knapsacks = list(np.array(self.knapsacks)[shuffle])
         
     def _setKnapsack (self, allCapacities):
         self.knapsacks = [Knapsack(i, c) for i, c in enumerate(allCapacities)]

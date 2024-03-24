@@ -32,7 +32,7 @@ class EncoderPPOTrainer_t2(PPOBase):
         
     ):
         savePath = save_path +'/RL/EncoderPPOTrainer_t2'+'_dim'+str(dim)+'/'
-        super().__init__(config, savePath, actor_model, normal_critic_model,
+        super().__init__(config, savePath, dim, actor_model, normal_critic_model,
                          extra_critic_model)
         self.info = info
         
@@ -78,17 +78,19 @@ class EncoderPPOTrainer_t2(PPOBase):
         eCap = knapSack.getExpectedCap()
         weight = statePrepares.getObservedInstWeight(inst_act)
         value = statePrepares.getObservedInstValue(inst_act)
+        
+        
         if inst_act < statePrepares.pad_len or inst_act in accepted_action[:,0]: 
-            reward = -(self.info['VALUE_HIGH']/(5*self.info['WEIGHT_LOW']))
+            reward = -(self.dim*self.info['VALUE_HIGH']/(self.dim*self.info['WEIGHT_LOW']))
         
         elif all(eCap >= weight):
-            reward = +(value / np.sum(weight))
+            reward = +(self.dim*value / np.sum(weight))
             knapSack.removeExpectedCap(weight)
             accepted_action = np.append(accepted_action,
                                          [[inst_act, ks_act]], 0)[1:]
             
         else:
-            reward = -(value / np.sum(weight))
+            reward = -(self.dim*value / np.sum(weight))
             
         reward = torch.tensor([reward]).unsqueeze(0)    
         return reward , accepted_action, step, prompt
@@ -194,12 +196,14 @@ class EncoderPPOTrainer_t3(PPOBase):
         extra_critic_model: torch.nn.Module,
         
     ):
-        savePath = save_path +'/RL/EncoderPPOTrainer_t3+'+'_dim'+str(dim)+'/'
-        super().__init__(config, savePath, actor_model, normal_critic_model,
+        savePath = save_path +'/RL/EncoderPPOTrainer_t3'+'_dim'+str(dim)+'/'
+        super().__init__(config, savePath, dim, actor_model, normal_critic_model,
                          extra_critic_model)
         self.info = info
         
+        self.dim = dim
         if path.exists(self.save_path):
+            print('trueeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee')
             self.load_models()
             self.pretrain_need = False
         else: self.pretrain_need = True
@@ -235,16 +239,16 @@ class EncoderPPOTrainer_t3(PPOBase):
         value = statePrepares.getObservedInstValue(inst_act)
         
         if inst_act < statePrepares.pad_len: 
-            reward = -((5*self.info['VALUE_HIGH'])/(5*self.info['WEIGHT_LOW']))
+            reward = -((self.dim*self.info['VALUE_HIGH'])/(self.dim*self.info['WEIGHT_LOW']))
         
         elif all(eCap >= weight):
-            reward = +((5*value) / np.sum(weight))
+            reward = +((self.dim*value) / np.sum(weight))
             knapSack.removeExpectedCap(weight)
             accepted_action = np.append(accepted_action,
                                          [[inst_act, ks_act]], 0)[1:]
 
         else:
-            reward = -((5*value) / np.sum(weight))
+            reward = -((self.dim*value) / np.sum(weight))
         reward = torch.tensor([reward]).unsqueeze(0)   
         return reward , accepted_action, step, prompt
     
