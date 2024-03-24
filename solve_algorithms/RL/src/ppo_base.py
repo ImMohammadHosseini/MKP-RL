@@ -22,6 +22,7 @@ class PPOBase():
         self,
         config: PPOConfig,
         save_path: str,
+        dim: int,
         actor_model: torch.nn.Module,
         normal_critic_model: torch.nn.Module,
         extra_critic_model: torch.nn.Module,
@@ -29,6 +30,7 @@ class PPOBase():
     ):
         self.config = config
         self.save_path = save_path
+        self.dim = dim
         self.actor_model = actor_model
         self.normal_critic_model = normal_critic_model
         self.extra_critic_model = extra_critic_model
