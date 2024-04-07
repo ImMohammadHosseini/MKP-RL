@@ -11,7 +11,7 @@ from typing import List, Optional
 from sklearn.metrics.pairwise import cosine_similarity
 
 @dataclass
-class ExternalStatePrepare:
+class StatePrepare:
     knapsacks: List[Knapsack]
     
     remainInstanceWeights: np.ndarray
@@ -22,19 +22,15 @@ class ExternalStatePrepare:
     def __init__ (
         self, 
         info: dict,
-        allCapacities: np.ndarray, 
-        weights: np.ndarray, 
-        values: np.ndarray, 
-        ks_main_data: np.ndarray,
-        instance_main_data: np.ndarray,
+        #ks_main_data: Optional[np.ndarray] = None,
+        #instance_main_data: Optional[np.ndarray] = None,
         k_obs_size: Optional[int] = None, 
         i_obs_size: Optional[int] = None
     ) -> None:
-        assert len(weights) == len(values)        
         
         self.info = info
-        self.ks_main_data = ks_main_data
-        self.instance_main_data = instance_main_data
+        #self.ks_main_data = ks_main_data
+        #self.instance_main_data = instance_main_data
         
         #inst_sim = cosine_similarity(instance_main_data[:len(weights)], weights, dense_output=False)
         #ks_sim = cosine_similarity(ks_main_data, allCapacities, dense_output=False)
@@ -49,8 +45,8 @@ class ExternalStatePrepare:
             self.weights = weights[order]
             self.values = values[order]
         else :'''
-        self.weights = weights
-        self.values = values
+        #self.weights = weights
+        #self.values = values
         
         '''if not (np.diagonal(ks_sim) > .9).all():
             order = [0]*len(allCapacities)
@@ -61,28 +57,37 @@ class ExternalStatePrepare:
                 ks_sim[index[0],:] = 0
             self._setKnapsack(allCapacities[order])
         else :'''
-        self._setKnapsack(allCapacities)
+        #self._setKnapsack(allCapacities)
 
-        if k_obs_size == None: 
-            self.knapsackObsSize = len(allCapacities)
-        else: self.knapsackObsSize = k_obs_size
         
-        if i_obs_size == None:
-            self.instanceObsSize = len(self.weights)
-        else: self.instanceObsSize = i_obs_size
+        self.knapsackObsSize = k_obs_size
+        self.instanceObsSize = i_obs_size
         self.pad_len = 0
     
     '''def normalizeData (self, maxCap, maxWeight, maxValue):
         self.weights = self.weights / maxWeight
         self.values = self.values / maxValue
         for k in self.knapsacks: k.capacities = k.getCap() / maxCap'''
-        
+    def setProblem(self,
+                   allCapacities: np.ndarray,
+                   weights: np.ndarray, 
+                   values: np.ndarray
+    ) -> None: 
+        assert len(weights) == len(values)        
+        self.weights = weights
+        self.values = values
+        self._setKnapsack(allCapacities)
+        if self.instanceObsSize == None:
+            self.instanceObsSize = len(self.weights)
+        if self.knapsackObsSize == None: 
+            self.knapsackObsSize = len(allCapacities)
+
     def reset (self) -> None:
         self.pad_len = 0
         self.ks_order = None
         shuffle = np.random.permutation(len(self.weights))
-        self.remainInstanceWeights = self.weights#[shuffle]
-        self.remainInstanceValues = self.values#[shuffle]
+        self.remainInstanceWeights = self.weights[shuffle]
+        self.remainInstanceValues = self.values[shuffle]
         shuffle = np.random.permutation(len(self.knapsacks))
         for k in self.knapsacks: k.reset()
         self.knapsacks = list(np.array(self.knapsacks)[shuffle])

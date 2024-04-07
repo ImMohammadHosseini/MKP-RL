@@ -4,14 +4,14 @@
 """
 
 import numpy as np
-from src.data_structure.state_prepare import ExternalStatePrepare
+from src.data_structure.state_prepare import StatePrepare
 from typing import Optional
 
 class GreedySelect():
     def __init__ (
         self,
         num_instance: int,
-        state_dataClass: ExternalStatePrepare,
+        state_dataClass: StatePrepare,
     ):
         self.statePrepare = state_dataClass
         self.greedy_num = num_instance

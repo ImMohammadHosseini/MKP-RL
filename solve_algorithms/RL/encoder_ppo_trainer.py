@@ -10,7 +10,6 @@ from typing import List, Optional
 import time
 
 from torch.distributions.categorical import Categorical
-from src.data_structure.state_prepare import ExternalStatePrepare
 from copy import deepcopy
 
 from .src.ppo_base import PPOBase

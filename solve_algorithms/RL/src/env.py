@@ -7,7 +7,7 @@ import numpy as np
 
 import gymnasium as gym
 from gymnasium import spaces
-from src.data_structure.state_prepare import ExternalStatePrepare
+from src.data_structure.state_prepare import StatePrepare
 
 class KnapsackAssignmentEnv (gym.Env):
     def __init__ (
@@ -59,9 +59,9 @@ class KnapsackAssignmentEnv (gym.Env):
         
     def setStatePrepare (
         self,
-        stateDataClasses: np.ndarray,
+        stateDataClass: np.ndarray,
     ):
-        self.statePrepares = stateDataClasses
+        self.statePrepare = stateDataClass
         
     def _get_obs (self) -> dict:
         '''batchCaps = np.zeros((0,30,4)); 
@@ -71,7 +71,7 @@ class KnapsackAssignmentEnv (gym.Env):
             batchCaps = np.append(batchCaps, np.expand_dims(stateCaps, 0), 0) 
             batchWeightValues = np.append(batchWeightValues, 
                                           np.expand_dims(stateWeightValues, 0), 0)'''
-        stateCaps, stateWeightValues = self.statePrepares.getObservation1()
+        stateCaps, stateWeightValues = self.statePrepare.getObservation1()
         batchCaps = np.expand_dims(stateCaps, 0)
         batchWeightValues = np.expand_dims(stateWeightValues, 0)
         return {"knapsack": batchCaps, "instance_value":batchWeightValues}
@@ -82,14 +82,14 @@ class KnapsackAssignmentEnv (gym.Env):
         
     def reset (self): 
         self.no_change = 0
-        self.statePrepares.reset()
+        self.statePrepare.reset()
         externalObservation = self._get_obs()
         SOD = np.array([[[1.]*self.dim]])
         EOD = np.array([[[2.]*self.dim]])
         
         
         sod_instance_value = np.insert(externalObservation[
-            "instance_value"], self.statePrepares.pad_len, SOD, axis=1)
+            "instance_value"], self.statePrepare.pad_len, SOD, axis=1)
         
         externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
                                             np.append(externalObservation["knapsack"], 
@@ -108,10 +108,10 @@ class KnapsackAssignmentEnv (gym.Env):
         invalid_action_end_index = max(np.where(step_actions == -1)[0], default=-1)
         if invalid_action_end_index == step_actions.shape[1]-1: self.no_change += 1
         else: self.no_change=0
-        externalRewards=self.statePrepares.changeNextState(
+        exteraRewards=self.statePrepare.changeNextState(
             step_actions[invalid_action_end_index+1:]) 
-        externalRewards = torch.tensor(externalRewards)             
-        terminated = terminated or self.statePrepares.is_terminated()
+        exteraRewards = torch.tensor(exteraRewards)             
+        terminated = terminated or self.statePrepare.is_terminated()
         
         
         info = self._get_info()
@@ -124,7 +124,7 @@ class KnapsackAssignmentEnv (gym.Env):
         shape = externalObservation["instance_value"].shape
         sod_instance_value = np.zeros((shape[0], shape[1]+1, shape[2]))
         sod_instance_value = np.insert(externalObservation[
-            "instance_value"], self.statePrepares.pad_len, SOD, axis=1)
+            "instance_value"], self.statePrepare.pad_len, SOD, axis=1)
            
         externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
                                             np.append(externalObservation["knapsack"], 
@@ -134,7 +134,7 @@ class KnapsackAssignmentEnv (gym.Env):
                                            dtype=torch.float32, 
                                            device=self.device)
         
-        return externalObservation, externalRewards, terminated, info
+        return externalObservation, exteraRewards, terminated, info
     
     
     def response_decode (self, responce):
@@ -143,7 +143,7 @@ class KnapsackAssignmentEnv (gym.Env):
     def final_score (self):
         score = 0
         remain_cap_ratio = []
-        for ks in self.statePrepares.knapsacks:
+        for ks in self.statePrepare.knapsacks:
             score += ks.score_ratio()
             remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
         return score, np.mean(remain_cap_ratio)

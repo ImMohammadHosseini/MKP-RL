@@ -3,13 +3,13 @@
 
 """
 import numpy as np
-from src.data_structure.state_prepare import ExternalStatePrepare
+from src.data_structure.state_prepare import StatePrepare
 from typing import Optional
 
 class RandomSelect ():
     def __init__ (
         self,
-        state_dataClass: ExternalStatePrepare,
+        state_dataClass: StatePrepare,
     ):
         self.statePrepare = state_dataClass
         self.reset()
