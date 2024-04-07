@@ -19,7 +19,7 @@ class EncoderMLPKnapsack (nn.Module):
         config,
         output_type,
         device: torch.device = torch.device("cpu"),
-        hidden_dims: List = [16,32,64,32],
+        hidden_dims: Optional[List] = None,
         name = 'transformerEncoderMLP',
     ):
         super().__init__()
@@ -48,9 +48,15 @@ class EncoderMLPKnapsack (nn.Module):
         
         self.flatten = nn.Flatten().to(self.device)
         
+        if hidden_dims == None:
+            main_size = self.config.output_dim*self.config.max_length
+            hidden_dims = []
+            while main_size > self.config.inst_obs_size*self.config.knapsack_obs_size: 
+                hidden_dims.append(int(main_size))
+                main_size = int(main_size/2)
         modules = []
-        input_dim = (self.config.max_length) * self.config.output_dim
-        for h_dim in hidden_dims:
+        input_dim = hidden_dims[0]
+        for h_dim in hidden_dims[1:]:
             modules.append(
                 nn.Sequential(
                     nn.Linear(input_dim, out_features=h_dim),
