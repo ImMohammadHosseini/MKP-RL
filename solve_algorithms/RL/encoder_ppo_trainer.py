@@ -202,7 +202,7 @@ class EncoderPPOTrainer_t3(PPOBase):
         
         self.dim = dim
         if path.exists(self.save_path):
-            print('trueeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee')
+            #print('trueeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee')
             self.load_models()
             self.pretrain_need = False
         else: self.pretrain_need = True
@@ -227,7 +227,14 @@ class EncoderPPOTrainer_t3(PPOBase):
         prompt, 
         statePrepares,
     ):
+        # TODO add 31 choos
+        print(action)
+        print(accepted_action)
+        print(step)
+        print(prompt) 
         act = int(action)
+        if act == self.actor_model.config.knapsack_obs_size * self.actor_model.config.inst_obs_size:
+            return torch.tensor([0]).unsqueeze(0), accepted_action, step, prompt
         inst_act = int(act / self.actor_model.config.knapsack_obs_size) 
         ks_act = statePrepares.getRealKsAct(int(
             act % self.actor_model.config.knapsack_obs_size))
@@ -271,8 +278,8 @@ class EncoderPPOTrainer_t3(PPOBase):
             criticModel = self.extra_critic_model
             criticOptim = self.extra_critic_optimizer
 
-        criticModel = self.normal_critic_model
-        criticOptim = self.normal_critic_optimizer
+        #criticModel = self.normal_critic_model
+        #criticOptim = self.normal_critic_optimizer
         
         obs = memoryObs.squeeze().to(self.actor_model.device)
         acts = memoryAct.to(self.actor_model.device)
