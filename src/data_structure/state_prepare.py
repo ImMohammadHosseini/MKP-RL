@@ -24,8 +24,8 @@ class StatePrepare:
         info: dict,
         #ks_main_data: Optional[np.ndarray] = None,
         #instance_main_data: Optional[np.ndarray] = None,
-        #k_obs_size: Optional[int] = None, 
-        #i_obs_size: Optional[int] = None
+        k_obs_size: Optional[int] = None, 
+        i_obs_size: Optional[int] = None
     ) -> None:
         
         self.info = info
@@ -59,13 +59,9 @@ class StatePrepare:
         else :'''
         #self._setKnapsack(allCapacities)
 
-        '''if k_obs_size == None: 
-            self.knapsackObsSize = len(allCapacities)
-        else: self.knapsackObsSize = k_obs_size
         
-        if i_obs_size == None:
-            self.instanceObsSize = len(self.weights)
-        else: self.instanceObsSize = i_obs_size'''
+        self.knapsackObsSize = k_obs_size
+        self.instanceObsSize = i_obs_size
         self.pad_len = 0
     
     '''def normalizeData (self, maxCap, maxWeight, maxValue):
@@ -81,6 +77,10 @@ class StatePrepare:
         self.weights = weights
         self.values = values
         self._setKnapsack(allCapacities)
+        if self.instanceObsSize == None:
+            self.instanceObsSize = len(self.weights)
+        if self.knapsackObsSize == None: 
+            self.knapsackObsSize = len(allCapacities)
 
     def reset (self) -> None:
         self.pad_len = 0
