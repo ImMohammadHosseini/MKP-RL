@@ -8,7 +8,6 @@ from torch.optim import Adam, SGD, RMSprop
 from typing import List, Optional
 
 from torch.distributions.categorical import Categorical
-from src.data_structure.state_prepare import ExternalStatePrepare
 
 from torch.autograd import Variable
 from.src.ppo_base import PPOBase

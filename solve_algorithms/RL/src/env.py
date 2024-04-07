@@ -7,7 +7,7 @@ import numpy as np
 
 import gymnasium as gym
 from gymnasium import spaces
-from src.data_structure.state_prepare import ExternalStatePrepare
+from src.data_structure.state_prepare import StatePrepare
 
 class KnapsackAssignmentEnv (gym.Env):
     def __init__ (
@@ -59,9 +59,9 @@ class KnapsackAssignmentEnv (gym.Env):
         
     def setStatePrepare (
         self,
-        stateDataClasses: np.ndarray,
+        stateDataClass: np.ndarray,
     ):
-        self.statePrepares = stateDataClasses
+        self.statePrepare = stateDataClass
         
     def _get_obs (self) -> dict:
         '''batchCaps = np.zeros((0,30,4)); 
