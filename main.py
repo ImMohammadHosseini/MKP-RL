@@ -12,7 +12,7 @@ from os import path, makedirs
 
 from tqdm import tqdm
 #from RL.src.core import LengthSampler
-from data.dataProducer import multipleKnapSackData, multiObjectiveDimentional
+from data.dataProducer import multipleKnapSackData, multiObjectiveDimentionalKP
 from configs.ppo_configs import PPOConfig
 from configs.fraction_sac_configs import FractionSACConfig
 from configs.transformers_model_configs import TransformerKnapsackConfig
@@ -49,13 +49,16 @@ parser.add_option("-V", "--variation", action="store", dest="var",
                   default='multiObjectiveDimentional',
                   help="variation is multipleKnapsack, multi_dimentional, \
                       multiObjectiveDimentional")
-parser.add_option("-D", "--dim", action="store", dest="dim", default=5)
-parser.add_option("-O", "--objective", action="store", dest="obj", default=5)
+parser.add_option("-D", "--dim", action="store", dest="dim", default=2)
+parser.add_option("-O", "--objective", action="store", dest="obj", default=1)
 parser.add_option("-K", "--knapsaks", action="store", dest="kps", default=2)
 parser.add_option("-N", "--instances", action="store", dest="instances", 
                   default=15)
 parser.add_option("-M", "--mode", action="store", dest="mode", 
                   default='train')
+parser.add_option("-T", "--trainMode", action="store", dest="trainMode", 
+                  default='normal')
+
 opts, args = parser.parse_args()
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -75,7 +78,7 @@ N_TRAIN_STEPS = 100000
 #NEW_PROBLEM_PER_EPISODE = 10
 N_TEST_STEPS = 10
 SAVE_PATH = 'pretrained/save_models'
-DATA_PATH = 'dataset/dim_'+str(opts.dim)+'_obj_'+str(opts.obj)+'/'+opts.mode
+DATA_PATH = 'dataset/dim_'+str(opts.dim)+'_obj_'+str(opts.obj)+'/'+opts.mode+'/'
 
 PPO_ALGORITHMS = ['EncoderPPOTrainer', 'FractionPPOTrainer', 'WholePPOTrainer']
 SAC_ALGORITHMS = ['SACTrainer', 'FractionSACTrainer']
@@ -89,19 +92,25 @@ TRAIN_PROCESS = ['normal_train', 'extra_train']
 def dataInitializer ():
     statePrepareList = []
     if path.exists(DATA_PATH):
-        instances_weights = [genfromtxt(DATA_PATH+'weights/'+str(i)+'.csv', delimiter=',')
-                              for i in range(3)]
-        instances_values = [genfromtxt(DATA_PATH+'values/'+str(i)+'.csv', delimiter=',')
-                              for i in range(3)]
-        ks_caps = [genfromtxt(DATA_PATH+'caps/'+str(i)+'.csv', delimiter=',')
-                              for i in range(3)]
+        instances_weights = [np.expand_dims(genfromtxt(DATA_PATH+'weights/'+str(i)+'.csv', delimiter=','),1) if opts.dim == 1
+                             else genfromtxt(DATA_PATH+'weights/'+str(i)+'.csv', delimiter=',')
+                              for i in range(PROBLEMS_NUM)]
+        instances_values = [np.expand_dims(genfromtxt(DATA_PATH+'values/'+str(i)+'.csv', delimiter=','),1) if opts.dim == 1
+                            else genfromtxt(DATA_PATH+'values/'+str(i)+'.csv', delimiter=',')
+                              for i in range(PROBLEMS_NUM)]
+        
+        ks_caps = [np.expand_dims(genfromtxt(DATA_PATH+'caps/'+str(i)+'.csv', delimiter=','),1) if opts.dim == 1
+                   else genfromtxt(DATA_PATH+'caps/'+str(i)+'.csv', delimiter=',')
+                              for i in range(PROBLEMS_NUM)]
         
     else:
-        instances_weights, instances_values, ks_caps = multiObjectiveDimentional(
-            opts.dim, opts.kps, opts.instances, INFOS)
-        
+        ks_caps, instances_weights, instances_values = multiObjectiveDimentionalKP(
+            PROBLEMS_NUM, opts.dim, opts.obj, opts.instances, opts.kps, INFOS)
+       
     if not path.exists(DATA_PATH):
-        makedirs(DATA_PATH)
+        makedirs(DATA_PATH+'weights/')
+        makedirs(DATA_PATH+'values/')
+        makedirs(DATA_PATH+'caps/')
         for i,w in enumerate(instances_weights):
             np.savetxt(DATA_PATH+'weights/'+str(i)+'.csv', w, delimiter=",")
         for i,v in enumerate(instances_values):
@@ -218,15 +227,17 @@ def ppo_train_extra (env, ppoTrainer, flags, c, w, v, output_type, algorithm_typ
     for i in tqdm(range(N_TRAIN_STEPS)):
         #for batch in range(len(statePrepares)):
         pn = np.random.randint(PROBLEMS_NUM)
+        print('gggggggggggg')
+        print(c[pn][0].shape)
         env.statePrepare.setProblem(c[pn], w[pn], v[pn])
-
+        
         externalObservation, _ = env.reset()
         done = False
         episodeNormalReward = torch.tensor (0.0)
         while not done:
             internalObservations, actions, accepted_action, probs, values, \
                 rewards, steps = ppoTrainer.make_steps(externalObservation, 
-                                                       env.statePrepares, flags[0], flags[1])
+                                                       env.statePrepare, flags[0], flags[1])
             #print(torch.cat(rewards,0).sum())
             episodeNormalReward += torch.cat(rewards,0).sum()
             externalObservation_, extraReward, done, info = env.step(accepted_action)
@@ -237,6 +248,7 @@ def ppo_train_extra (env, ppoTrainer, flags, c, w, v, output_type, algorithm_typ
                                                steps, internalObservations)
             
             n_steps += addition_steps
+            print(accepted_action)
             if n_steps % ppoTrainer.config.normal_batch == 0:
                 ppoTrainer.train('normal')
             '''if ~(accepted_action == [-1,-1]).all():
@@ -261,7 +273,7 @@ def ppo_train_extra (env, ppoTrainer, flags, c, w, v, output_type, algorithm_typ
         if avg_reward > best_reward:
             best_reward  = avg_reward
             ppoTrainer.save_models()
-            ooo
+            #TODO ooo
         print('episode', i, 'score %.3f' % scores, 'avg score %.2f' % avg_score,
               'time_steps', n_steps, 'remain_cap_ratio %.3f'% np.mean(remain_cap_ratios),
               'interanl_reward %.3f'%float(episodeNormalReward), 'avg reward %.3f' %avg_reward)
@@ -357,7 +369,7 @@ if __name__ == '__main__':
     #    for output_type in OUTPUT_TYPES:False, False
     env, ppoTrainer, flags = ppoInitializer ('type3', 'EncoderPPOTrainer')
     if opts.mode == 'train':
-        ppo_train_extra(env, ppoTrainer, flags, 'type3', 'EncoderPPOTrainer')
+        ppo_train_extra(env, ppoTrainer, flags, c, w, v, 'type3', 'EncoderPPOTrainer')
     elif opts.mode == 'test':
         ppo_test(env, ppoTrainer, flags, 'type3', 'EncoderPPOTrainer')
     
