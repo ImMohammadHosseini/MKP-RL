@@ -30,7 +30,7 @@ class EncoderPPOTrainer_t2(PPOBase):
         extra_critic_model: torch.nn.Module,
         
     ):
-        savePath = save_path +'/RL/EncoderPPOTrainer_t2'+'_dim'+str(dim)+'/'
+        savePath = save_path +'/RL/EncoderPPOTrainer_t2/'
         super().__init__(config, savePath, dim, actor_model, normal_critic_model,
                          extra_critic_model)
         self.info = info
@@ -195,14 +195,13 @@ class EncoderPPOTrainer_t3(PPOBase):
         extra_critic_model: torch.nn.Module,
         
     ):
-        savePath = save_path +'/RL/EncoderPPOTrainer_t3'+'_dim'+str(dim)+'/'
+        savePath = save_path +'/RL/EncoderPPOTrainer_t3/'
         super().__init__(config, savePath, dim, actor_model, normal_critic_model,
                          extra_critic_model)
         self.info = info
         
         self.dim = dim
         if path.exists(self.save_path):
-            #print('trueeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee')
             self.load_models()
             self.pretrain_need = False
         else: self.pretrain_need = True
@@ -227,11 +226,6 @@ class EncoderPPOTrainer_t3(PPOBase):
         prompt, 
         statePrepares,
     ):
-        # TODO add 31 choos
-        print(action)
-        print(accepted_action)
-        print(step)
-        print(prompt) 
         act = int(action)
         if act == self.actor_model.config.knapsack_obs_size * self.actor_model.config.inst_obs_size:
             return torch.tensor([0]).unsqueeze(0), accepted_action, step, prompt
@@ -245,16 +239,16 @@ class EncoderPPOTrainer_t3(PPOBase):
         value = statePrepares.getObservedInstValue(inst_act)
         
         if inst_act < statePrepares.pad_len: 
-            reward = -((self.dim*self.info['VALUE_HIGH'])/(self.dim*self.info['WEIGHT_LOW']))
+            reward = np.mean(-((self.dim*self.info['VALUE_HIGH'])/(self.dim*self.info['WEIGHT_LOW'])))
         
         elif all(eCap >= weight):
-            reward = +((self.dim*value) / np.sum(weight))
+            reward = np.mean(+((self.dim*value) / np.sum(weight)))
             knapSack.removeExpectedCap(weight)
             accepted_action = np.append(accepted_action,
                                          [[inst_act, ks_act]], 0)[1:]
 
         else:
-            reward = -((self.dim*value) / np.sum(weight))
+            reward = np.mean(-((self.dim*value) / np.sum(weight)))
         reward = torch.tensor([reward]).unsqueeze(0)   
         return reward , accepted_action, step, prompt
     
@@ -319,7 +313,7 @@ class EncoderPPOTrainer_t3(PPOBase):
                     batchObs, None, None)
                 
                 act_dist = Categorical(firstGenerated)
-                entropy_loss = act_dist.entropy().mean()
+                #entropy_loss = act_dist.entropy().mean()
                 
                 new_log_probs = act_dist.log_prob(batchActs.squeeze().to(self.actor_model.device))
                 newVal = criticModel(batchObs)
