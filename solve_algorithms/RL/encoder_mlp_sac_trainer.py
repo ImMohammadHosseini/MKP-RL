@@ -7,14 +7,196 @@ import numpy as np
 import torch
 from os import path, makedirs
 from typing import List, Optional
-from torch.optim import AdamW, SGD, RMSprop
+from torch.optim import Adam, SGD, RMSprop
 from torch.distributions.categorical import Categorical
 
-from .src.base_trainer import BaseTrainer
-from configs.fraction_sac_configs import FractionSACConfig
+from .src.sac_base import SACBase
+from configs.fraction_sac_configs import SACConfig
 
+class EncoderSACTrainer_t3(SACBase):
+    def __init__(
+        self,
+        info: List,
+        save_path: str,
+        config: SACConfig,
+        dim: int, 
+        actor_model: torch.nn.Module,
+        critic_local1: torch.nn.Module,
+        critic_local2: torch.nn.Module,
+        critic_target1: torch.nn.Module,
+        critic_target2: torch.nn.Module,
+    ):
+        savePath = save_path +'/RL/EncoderSACTrainer_t3/'
+        super().__init__(config, savePath, dim, actor_model, critic_local1,
+        critic_local2, critic_target1, critic_target2)
+        self.info = info
+        
+        self.dim = dim
+        print(self.save_path)
+        if path.exists(self.save_path):
+            print('hhhhhhh')#TODO delete
+            self.load_models()
+            self.pretrain_need = False
+        else: self.pretrain_need = True
+        
+    def _choose_actions (
+        self, 
+        firstGenerated,
+        secondGenerated,
+    ):
+        act_dist = Categorical(firstGenerated)
+        act = act_dist.sample()
+        prob = firstGenerated[act]
+        log_prob = act_dist.log_prob(act).unsqueeze(0).unsqueeze(0)
+        return act.unsqueeze(0), prob, log_prob
+    
+    def normal_reward (
+        self,
+        action: torch.tensor,
+        accepted_action: np.ndarray,
+        step, 
+        prompt, 
+        statePrepares,
+    ):
+        act = int(action)
+        #if act == self.actor_model.config.knapsack_obs_size * self.actor_model.config.inst_obs_size:
+        #    return torch.tensor([0]).unsqueeze(0), accepted_action, step, prompt
+        inst_act = int(act / self.actor_model.config.knapsack_obs_size) 
+        ks_act = statePrepares.getRealKsAct(int(
+            act % self.actor_model.config.knapsack_obs_size))
+        knapSack = statePrepares.getKnapsack(ks_act)
+            
+        eCap = knapSack.getExpectedCap()
+        weight = statePrepares.getObservedInstWeight(inst_act)
+        value = statePrepares.getObservedInstValue(inst_act)
+        
+        #print(value/10)
+        #print(np.mean(value / 10))
+        #print(np.mean(+(np.mean(value / weight))))
+        #print(self.dd)
+        if inst_act < statePrepares.pad_len: 
+            reward = -4
+        elif all(eCap >= weight):
+            #dw = np.max(weight[np.where((eCap-weight)==np.min(eCap-weight))[0]])
+            #reward = np.mean(+value / dw)
+            #reward = np.mean(+(np.mean(value / weight)))
+            reward = np.mean(value/10)
 
-class EncoderMlpSACTrainer(BaseTrainer):
+            knapSack.removeExpectedCap(weight)
+            accepted_action = np.append(accepted_action,
+                                         [[inst_act, ks_act]], 0)[1:]
+
+        else:
+            #dw = np.max(weight[np.where((eCap-weight)==np.min(eCap-weight))[0]])
+            #1idx = int(np.where((eCap-weight)==np.min(eCap-weight))[0])
+            #reward = np.mean(-value / dw) 
+            #reward = np.mean(-(np.mean(value / weight)))
+            reward = np.mean(-value/10)
+
+        reward = torch.tensor([reward]).unsqueeze(0) 
+        #print(inst_act)
+        #print(ks_act)
+        #print(eCap)
+        #print(weight)
+        #print(reward)
+        return reward , accepted_action, step, prompt
+    
+    def train (
+        self, 
+        mode = 'normal'
+    ):  
+        if self._transitions_stored < self.config.sac_batch_size :
+            return
+        
+        if mode == 'normal':
+            n_state = self.config.normal_batch
+            batch_size = self.config.ppo_normal_batch_size
+            memoryObs, memorynNewObs, memoryAct, memoryRwd, memoryDon \
+                = self.memory.get_normal_memory()
+            #criticModel = self.normal_critic_model
+            #criticOptim = self.normal_critic_optimizer
+            
+        elif mode == 'extra':
+            pass #TODO add extra part
+        
+        print(memoryObs.size())
+        obs = memoryObs.squeeze().to(self.actor_model.device)
+        print(obs.size())
+        print(memorynNewObs.size())
+        newObs = memorynNewObs.squeeze().to(self.actor_model.device)
+        print(newObs.size())
+        acts = memoryAct.to(self.actor_model.device) 
+        rewards = memoryRwd.to(self.actor_model.device)
+        done = memoryDon.to(self.actor_model.device)
+        
+        #critic loss 
+        self.critic_optimizer1.zero_grad()
+        self.critic_optimizer2.zero_grad()
+        
+        
+        #generatedAction = self.actor_model.generateOneStep(nextObservation)
+        firstGenerated, secondGenerated, _ = self.actor_model.generateOneStep(
+            newObs, torch.tensor([1], dtype=torch.int64), None)
+        _, prob, log_prob = self._choose_actions(firstGenerated, secondGenerated)
+        
+        next1_values = self.critic_target1(newObs)
+        next2_values = self.critic_target2(newObs)
+        
+        soft_state_values = (prob * (
+                    torch.min(next1_values, next2_values) - self.alpha * log_prob
+            )).sum(dim=1)
+        
+        next_q_values = rewards + ~done * self.config.discount_rate*soft_state_values
+        
+        soft_q1_values = self.critic_local1(obs)
+        soft_q1_values = soft_q1_values.gather(1, acts.unsqueeze(1)).squeeze(-1)
+        
+        soft_q2_values = self.critic_local2(obs)
+        soft_q2_values = soft_q2_values.gather(1, acts.unsqueeze(1)).squeeze(-1)
+        
+        critic1_square_error = torch.nn.MSELoss(reduction="none")(soft_q1_values, next_q_values)
+        critic2_square_error = torch.nn.MSELoss(reduction="none")(soft_q2_values, next_q_values)
+        
+        weight_update = [min(l1.item(), l2.item()) for l1, l2 in zip(critic1_square_error, critic2_square_error)]
+        self.update_weights(weight_update)
+    
+        critic1_loss = critic1_square_error.mean()
+        critic2_loss = critic2_square_error.mean()
+        
+        critic1_loss.backward(retain_graph=True)
+        self.critic_optimizer1.step()
+        critic2_loss.backward(retain_graph=True)
+        self.critic_optimizer2.step()
+        
+        #actor loss
+        self.actor_optimizer.zero_grad()
+        firstGenerated, secondGenerated, _ = self.actor_model.generateOneStep(
+            obs, torch.tensor([1], dtype=torch.int64), None)
+        #generatedAction = self.actor_model.generateOneStep(externalObservation)
+        _, prob, log_prob = self._choose_actions(firstGenerated, secondGenerated)
+        
+        local1_values = self.critic_local1(obs)
+        local2_values = self.critic_local2(obs)
+        
+        inside_term = self.alpha * log_prob - torch.min(local1_values, local2_values)
+        
+        actor_loss = (prob * inside_term).sum(dim=1).mean()
+        
+        actor_loss.backward()
+        self.actor_optimizer.step()
+        
+        #temperature loss
+        self.alpha_optimizer.zero_grad()
+        
+        alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
+        alpha_loss.backward()
+        self.alpha_optimizer.step()
+        self.alpha = self.log_alpha.exp() 
+        
+        self.soft_update(self.critic_target1, self.critic_local1)
+        self.soft_update(self.critic_target2, self.critic_local2)
+    
+class EncoderMlpSACTrainer(SACBase):
     r"""
     this implementation is inspired by: 
         https://towardsdatascience.com/adapting-soft-actor-critic-for-discrete-action-spaces-a20614d4a50a
@@ -27,50 +209,53 @@ class EncoderMlpSACTrainer(BaseTrainer):
         self,
         info: List,
         save_path: str,
-        main_batch_size: int,
-        config: FractionSACConfig,
+        #main_batch_size: int,
+        config: SACConfig,
+        dim: int, 
         actor_model: torch.nn.Module,
         critic_local1: torch.nn.Module,
         critic_local2: torch.nn.Module,
         critic_target1: torch.nn.Module,
         critic_target2: torch.nn.Module,
-        device: torch.device = torch.device("cpu"),
+        #device: torch.device = torch.device("cpu"),
         actor_optimizer: Optional[torch.optim.Optimizer] = None,
         critic_optimizer1: Optional[torch.optim.Optimizer] = None,
         critic_optimizer2: Optional[torch.optim.Optimizer] = None,
 
     ):
-        self.device = device
+        #self.device = device
         self.info = info
-        self.main_batch_size = main_batch_size
+        #self.main_batch_size = main_batch_size
         self.config = config
+        self.dim = dim
         
         self.actor_model = actor_model
         self.critic_local1 = critic_local1
-        self.critic_local1 = self.critic_local1.to(self.device)
+        #self.critic_local1 = self.critic_local1.to(self.device)
         self.critic_local2 = critic_local2
-        self.critic_local2 = self.critic_local2.to(self.device)
+        #self.critic_local2 = self.critic_local2.to(self.device)
         self.critic_target1 = critic_target1
-        self.critic_target1 = self.critic_target1.to(self.device)
+        #self.critic_target1 = self.critic_target1.to(self.device)
         self.critic_target2 = critic_target2
-        self.critic_target2 = self.critic_target2.to(self.device)
+        #self.critic_target2 = self.critic_target2.to(self.device)
         
         if actor_optimizer is None:
-            self.actor_optimizer = AdamW(
+            self.actor_optimizer = Adam(
                 self.actor_model.parameters(), lr=self.config.actor_lr
             )
+            
         else:
             self.actor_optimizer = actor_optimizer
             
         if critic_optimizer1 is None:
-            self.critic_optimizer1 = AdamW(
+            self.critic_optimizer1 = Adam(
                 self.critic_local1.parameters(), lr=self.config.critic_lr
             )
         else:
             self.critic_optimizer1 = critic_optimizer1
             
         if critic_optimizer2 is None:
-            self.critic_optimizer2 = AdamW(
+            self.critic_optimizer2 = Adam(
                 self.critic_local2.parameters(), lr=self.config.critic_lr
             )
         else:
@@ -80,7 +265,7 @@ class EncoderMlpSACTrainer(BaseTrainer):
             -np.log(1 / self.actor_model.config.knapsack_obs_size)
         self.log_alpha = torch.tensor(np.log(self.config.alpha_initial), requires_grad=True)
         self.alpha = self.log_alpha.to(self.device)
-        self.alpha_optimizer = AdamW([self.log_alpha], lr=self.config.alpha_lr)
+        self.alpha_optimizer = Adam([self.log_alpha], lr=self.config.alpha_lr)
     
         self.savePath = save_path +'/RL/EncoderMlpSACTrainer/'
         if path.exists(self.savePath):
