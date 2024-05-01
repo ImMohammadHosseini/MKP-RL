@@ -72,18 +72,21 @@ class KnapsackAssignmentEnv (gym.Env):
             batchWeightValues = np.append(batchWeightValues, 
                                           np.expand_dims(stateWeightValues, 0), 0)'''
         stateCaps, stateWeightValues = self.statePrepare.getObservation1()
+        #print(stateCaps.shape)
+        #print(stateWeightValues.shape)
         batchCaps = np.expand_dims(stateCaps, 0)
         batchWeightValues = np.expand_dims(stateWeightValues, 0)
-        
+
+        #print(self.dd)
         return {"knapsack": batchCaps, "instance_value":batchWeightValues}
         
     def _get_info (self):
         return ""
         
         
-    def reset (self): 
+    def reset (self, cahnge_problem=True): 
         self.no_change = 0
-        self.statePrepare.reset()
+        self.statePrepare.reset(cahnge_problem)
         externalObservation = self._get_obs()
         SOD = np.array([[[1.]*self.vector_dim]])
         EOD = np.array([[[2.]*self.vector_dim]])
@@ -95,7 +98,7 @@ class KnapsackAssignmentEnv (gym.Env):
         externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
                                             np.append(externalObservation["knapsack"], 
                                              EOD, axis=1),axis=1)
-        
+        #print(self.dd)
         info = self._get_info()
 
         externalObservation = torch.tensor(externalObservation, 
@@ -130,7 +133,6 @@ class KnapsackAssignmentEnv (gym.Env):
         externalObservation = np.append(np.append(sod_instance_value, EOD, axis=1), 
                                             np.append(externalObservation["knapsack"], 
                                              EOD, axis=1),axis=1)
-        
         externalObservation = torch.tensor(externalObservation, 
                                            dtype=torch.float32, 
                                            device=self.device)
@@ -142,12 +144,13 @@ class KnapsackAssignmentEnv (gym.Env):
         pass
     
     def final_score (self):
-        score = 0
+        score = []
         remain_cap_ratio = []
         for ks in self.statePrepare.knapsacks:
-            score += ks.getValues()
+            score.append(ks.getValues())
             remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
-        return score, np.mean(remain_cap_ratio)
+        
+        return np.sum(score, 0), np.mean(remain_cap_ratio)
     
     
     
