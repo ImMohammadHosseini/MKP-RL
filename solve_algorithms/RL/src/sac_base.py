@@ -50,7 +50,8 @@ class SACBase():
         self.delta = 10**-4
         self.indices = None
         
-        self.memory = SACReplayBuffer(self.config.generat_link_number)
+        self.memory = SACReplayBuffer(self.config.generat_link_number, 
+                                      self.config, self.actor_model.config)
         
         
     def _choose_actions (
@@ -64,6 +65,11 @@ class SACBase():
         *args
     ):
         raise NotImplementedError("Not implemented")
+    
+    def update_weights(self, prediction_errors):
+        max_error = max(prediction_errors)
+        self.max_weight = max(self.max_weight, max_error)
+        self.weights[self.indices] = prediction_errors
         
     def make_steps (
         self,
@@ -72,7 +78,38 @@ class SACBase():
         fraction_flag: bool,
         step_flag: bool,
     ):
+        accepted_action = np.array([[-1]*2]*self.config.generat_link_number, dtype= int)
+        actions = []; internalObservations = []; rewards = []; #probs = []; values = []; 
+        steps = []; prompt = None
+        step = torch.tensor([1], dtype=torch.int64)
+        
+        for i in range(0, self.config.generat_link_number):
+            firstGenerated, secondGenerated, prompt = self.actor_model.generateOneStep(
+                externalObservation, step, prompt)
+            steps.append(deepcopy(step))
+            act, _, _ = self._choose_actions(firstGenerated, secondGenerated)
+            #print(act)
+            #print(prob)
+            actions.append(act.unsqueeze(0))#; probs.append(prob)
+            #print(actions)
+            #print(probs)
+            internalReward, accepted_action, step, prompt = self.normal_reward(
+                act, accepted_action, step, prompt, statePrepares)
+            
+            internalObservations.append(prompt)
+            rewards.append(internalReward)
+            #values.append(self.normal_critic_model(externalObservation, prompt))
+        steps = torch.cat(steps,0)
+        if not fraction_flag: 
+            rewards = [sum(rewards)]
+            #probs = [sum(probs)]
+            
+        if step_flag:
+            return internalObservations, actions, accepted_action, rewards, steps
+        else:
+            return None, actions, accepted_action, rewards, None
     
+        
     def train (
         *args
     ):
