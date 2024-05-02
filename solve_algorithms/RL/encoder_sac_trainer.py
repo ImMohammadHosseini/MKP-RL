@@ -14,6 +14,13 @@ from .src.sac_base import SACBase
 from configs.sac_configs import SACConfig
 
 class EncoderSACTrainer_t3(SACBase):
+    r"""
+    this implementation is inspired by: 
+        https://towardsdatascience.com/adapting-soft-actor-critic-for-discrete-action-spaces-a20614d4a50a
+        https://github.com/philtabor/Youtube-Code-Repository/tree/master/ReinforcementLearning/PolicyGradient/SAC
+        https://github.com/rlworkgroup/garage/tree/master
+        
+    """
     def __init__(
         self,
         info: List,
@@ -157,14 +164,15 @@ class EncoderSACTrainer_t3(SACBase):
         
         soft_q2_values = self.critic_local2(obs)
         soft_q2_values = soft_q2_values.gather(1, acts[:,:,0]).squeeze(-1)
-        critic1_square_error = torch.nn.MSELoss(reduction="none")(soft_q1_values, next_q_values)
-        critic2_square_error = torch.nn.MSELoss(reduction="none")(soft_q2_values, next_q_values)
+        critic1_square_error = torch.nn.MSELoss(reduction="none")(soft_q1_values.float(), next_q_values.float())
+        critic2_square_error = torch.nn.MSELoss(reduction="none")(soft_q2_values.float(), next_q_values.float())
         
         weight_update = [min(l1.item(), l2.item()) for l1, l2 in zip(critic1_square_error, critic2_square_error)]
         self.memory.update_weights(weight_update)
-    
-        critic1_loss = critic1_square_error.mean()
-        critic2_loss = critic2_square_error.mean()
+
+        critic1_loss = critic1_square_error.mean()#.to(torch.float32)
+        critic2_loss = critic2_square_error.mean()#.to(torch.float32)
+        
         
         critic1_loss.backward(retain_graph=True)
         self.critic_optimizer1.step()
@@ -199,6 +207,12 @@ class EncoderSACTrainer_t3(SACBase):
         self.soft_update(self.critic_target1, self.critic_local1)
         self.soft_update(self.critic_target2, self.critic_local2)
     
+    def soft_update(self, target_model, origin_model):
+        for target_param, local_param in zip(target_model.parameters(), origin_model.parameters()):
+            target_param.data.copy_(self.config.tau * local_param.data + (1 - self.config.tau) * target_param.data)
+        
+        
+        
 class EncoderMlpSACTrainer(SACBase):
     r"""
     this implementation is inspired by: 
