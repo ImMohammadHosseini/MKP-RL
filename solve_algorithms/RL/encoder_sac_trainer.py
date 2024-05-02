@@ -11,7 +11,7 @@ from torch.optim import Adam, SGD, RMSprop
 from torch.distributions.categorical import Categorical
 
 from .src.sac_base import SACBase
-from configs.fraction_sac_configs import SACConfig
+from configs.sac_configs import SACConfig
 
 class EncoderSACTrainer_t3(SACBase):
     def __init__(
@@ -28,7 +28,7 @@ class EncoderSACTrainer_t3(SACBase):
     ):
         savePath = save_path +'/RL/EncoderSACTrainer_t3/'
         super().__init__(config, savePath, dim, actor_model, critic_local1,
-        critic_local2, critic_target1, critic_target2)
+        critic_local2, critic_target1, critic_target2, action_num=1)
         self.info = info
         
         self.dim = dim
@@ -46,9 +46,13 @@ class EncoderSACTrainer_t3(SACBase):
     ):
         act_dist = Categorical(firstGenerated)
         act = act_dist.sample()
-        prob = firstGenerated[act]
-        log_prob = act_dist.log_prob(act).unsqueeze(0).unsqueeze(0)
-        return act.unsqueeze(0), prob, log_prob
+        #prob = firstGenerated
+        z = firstGenerated == 0.0
+        z = z.float() * 1e-8
+        log_prob = torch.log(firstGenerated + z)
+
+        #log_prob = act_dist.log_prob(act).unsqueeze(0).unsqueeze(0)
+        return act.unsqueeze(0), firstGenerated, log_prob
     
     def normal_reward (
         self,
@@ -105,12 +109,13 @@ class EncoderSACTrainer_t3(SACBase):
         self, 
         mode = 'normal'
     ):  
-        if self._transitions_stored < self.config.sac_batch_size :
+        if self.memory._normal_transitions_stored < self.config.normal_batch_size :
             return
+        #TODO add extra batch size
         
         if mode == 'normal':
-            n_state = self.config.normal_batch
-            batch_size = self.config.ppo_normal_batch_size
+            #n_state = self.config.normal_batch
+            #batch_size = self.config.ppo_normal_batch_size
             memoryObs, memorynNewObs, memoryAct, memoryRwd, memoryDon \
                 = self.memory.get_normal_memory()
             #criticModel = self.normal_critic_model
@@ -119,15 +124,11 @@ class EncoderSACTrainer_t3(SACBase):
         elif mode == 'extra':
             pass #TODO add extra part
         
-        print(memoryObs.size())
-        obs = memoryObs.squeeze().to(self.actor_model.device)
-        print(obs.size())
-        print(memorynNewObs.size())
-        newObs = memorynNewObs.squeeze().to(self.actor_model.device)
-        print(newObs.size())
-        acts = memoryAct.to(self.actor_model.device) 
-        rewards = memoryRwd.to(self.actor_model.device)
-        done = memoryDon.to(self.actor_model.device)
+        obs = memoryObs.to(self.actor_model.device).to(torch.float32).detach()
+        newObs = memorynNewObs.to(self.actor_model.device).to(torch.float32).detach()
+        acts = memoryAct.to(self.actor_model.device).to(torch.int64).detach()
+        rewards = memoryRwd.to(self.actor_model.device).detach()
+        done = memoryDon.to(self.actor_model.device).detach()
         
         #critic loss 
         self.critic_optimizer1.zero_grad()
@@ -139,6 +140,7 @@ class EncoderSACTrainer_t3(SACBase):
             newObs, torch.tensor([1], dtype=torch.int64), None)
         _, prob, log_prob = self._choose_actions(firstGenerated, secondGenerated)
         
+        #print(newObs.dtype)
         next1_values = self.critic_target1(newObs)
         next2_values = self.critic_target2(newObs)
         
@@ -146,19 +148,20 @@ class EncoderSACTrainer_t3(SACBase):
                     torch.min(next1_values, next2_values) - self.alpha * log_prob
             )).sum(dim=1)
         
-        next_q_values = rewards + ~done * self.config.discount_rate*soft_state_values
+        
+        next_q_values = rewards.squeeze() + ~done * self.config.discount_rate*soft_state_values
         
         soft_q1_values = self.critic_local1(obs)
-        soft_q1_values = soft_q1_values.gather(1, acts.unsqueeze(1)).squeeze(-1)
+        
+        soft_q1_values = soft_q1_values.gather(1, acts[:,:,0]).squeeze(-1)
         
         soft_q2_values = self.critic_local2(obs)
-        soft_q2_values = soft_q2_values.gather(1, acts.unsqueeze(1)).squeeze(-1)
-        
+        soft_q2_values = soft_q2_values.gather(1, acts[:,:,0]).squeeze(-1)
         critic1_square_error = torch.nn.MSELoss(reduction="none")(soft_q1_values, next_q_values)
         critic2_square_error = torch.nn.MSELoss(reduction="none")(soft_q2_values, next_q_values)
         
         weight_update = [min(l1.item(), l2.item()) for l1, l2 in zip(critic1_square_error, critic2_square_error)]
-        self.update_weights(weight_update)
+        self.memory.update_weights(weight_update)
     
         critic1_loss = critic1_square_error.mean()
         critic2_loss = critic2_square_error.mean()
