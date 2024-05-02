@@ -5,7 +5,7 @@
 
 import torch
 from torch import nn
-from typing import List
+from typing import List, Optional 
 
 class CriticNetwork1 (nn.Module):
     def __init__ (self, external_max_length, ext_input_dim, internal_max_length,
@@ -68,20 +68,27 @@ class CriticNetwork2 (nn.Module):
         max_length: int,
         input_dim: int, 
         device,
-        hidden_dims: List = [256, 128, 128, 64, 16],
+        hidden_dims: Optional[List] = None,
+        out_put_dim:int = 1,
         name = 'mlp_cretic',
     ):
         super().__init__()
         self.name = name 
         self.device = device
         self.to(device)
-        #input_dim = input_dim*max_length
-        #self.lstm = nn.LSTM(input_size=input_dim, hidden_size=2*input_dim, 
-        #                    num_layers=1, batch_first=True, bidirectional=True).to(device)
-        #sd = self.lstm.state_dict()
+        
+        self.lstm = nn.LSTM(input_size=input_dim, hidden_size=2*input_dim, 
+                            num_layers=2, batch_first=True, bidirectional=True).to(self.device)
         self.flatten = nn.Flatten().to(device)
         modules = []
-        input_dim = input_dim*max_length
+        input_dim = input_dim*max_length*4
+        if hidden_dims == None:
+            main_size = 2*input_dim
+            hidden_dims = []
+            last_layer = 8 if out_put_dim == 1 else out_put_dim
+            while main_size > last_layer: 
+                hidden_dims.append(int(main_size))
+                main_size = int(main_size/2)
         for h_dim in hidden_dims:
             modules.append(
                 nn.Sequential(
@@ -89,14 +96,13 @@ class CriticNetwork2 (nn.Module):
                     nn.ReLU())
             )
             input_dim = h_dim
-        modules.append(nn.Sequential(nn.Linear(input_dim, 1)))    
+        modules.append(nn.Sequential(nn.Linear(input_dim, out_put_dim)))    
         self.critic = nn.Sequential(*modules).to(device)
     
     def forward(self, external, *args):
-        #print(external.size())
-        #lstm, _ = self.lstm(external.to(self.device))
-        #print(self.flatten(lstm).size())
-        return self.critic(self.flatten(external.to(self.device)))
+        encod, _ = self.lstm(external)
+
+        return self.critic(self.flatten(encod))
     
     
     
