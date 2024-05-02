@@ -9,12 +9,13 @@ from dataclasses import dataclass
 @dataclass
 class FractionSACConfig(object):
     """
-    Configuration class for PPOTrainer
+    Configuration class for SACTrainer
     """
     def __init__ (
         self,
-        generat_link_number: int = 10,
-        sac_batch_size: int = 64,
+        generat_link_number: int = 5,
+        normal_batch_size: int = 32,
+        extra_batch_size: int = 32,
         buffer_size: int = int(1e6),
         alpha_initial: float = 1.,
         discount_rate: float = 0.99,
@@ -43,7 +44,8 @@ class FractionSACConfig(object):
         spatial_regularization_eps=1.'''
     
         self.generat_link_number = generat_link_number
-        self.sac_batch_size = sac_batch_size
+        self.normal_batch_size = normal_batch_size
+        self.extra_batch_size = extra_batch_size
         self.buffer_size = buffer_size
         self.alpha_initial = alpha_initial
         self.discount_rate = discount_rate

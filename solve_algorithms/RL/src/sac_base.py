@@ -21,7 +21,7 @@ class SACBase():
         critic_local2: torch.nn.Module,
         critic_target1: torch.nn.Module,
         critic_target2: torch.nn.Module,
-
+        action_num:int,
     ):
         self.config = config
         self.save_path = save_path
@@ -43,14 +43,11 @@ class SACBase():
         self.target_entropy = 0.98 * -np.log(1 / self.actor_model.config.inst_obs_size) * \
             -np.log(1 / self.actor_model.config.knapsack_obs_size)
         self.log_alpha = torch.tensor(np.log(self.config.alpha_initial), requires_grad=True)
+        self.alpha = self.log_alpha
         self.alpha_optimizer = Adam([self.log_alpha], lr=self.config.alpha_lr)
-    
         
-        self.max_weight = 10**-2
-        self.delta = 10**-4
-        self.indices = None
-        
-        self.memory = SACReplayBuffer(self.config.generat_link_number)
+        self.memory = SACReplayBuffer(self.config.generat_link_number, 
+                                      self.config, self.actor_model.config, action_num)
         
         
     def _choose_actions (
@@ -72,63 +69,94 @@ class SACBase():
         fraction_flag: bool,
         step_flag: bool,
     ):
+        accepted_action = np.array([[-1]*2]*self.config.generat_link_number, dtype= int)
+        actions = []; internalObservations = []; rewards = []; #probs = []; values = []; 
+        steps = []; prompt = None
+        step = torch.tensor([1], dtype=torch.int64)
+        
+        for i in range(0, self.config.generat_link_number):
+            firstGenerated, secondGenerated, prompt = self.actor_model.generateOneStep(
+                externalObservation, step, prompt)
+            steps.append(deepcopy(step))
+            act, _, _ = self._choose_actions(firstGenerated, secondGenerated)
+            #print(act)
+            #print(prob)
+            actions.append(act.unsqueeze(0))#; probs.append(prob)
+            #print(actions)
+            #print(probs)
+            internalReward, accepted_action, step, prompt = self.normal_reward(
+                act, accepted_action, step, prompt, statePrepares)
+            
+            internalObservations.append(prompt)
+            rewards.append(internalReward)
+            #values.append(self.normal_critic_model(externalObservation, prompt))
+        steps = torch.cat(steps,0)
+        if not fraction_flag: 
+            rewards = [sum(rewards)]
+            #probs = [sum(probs)]
+            
+        if step_flag:
+            return internalObservations, actions, accepted_action, rewards, steps
+        else:
+            return None, actions, accepted_action, rewards, None
     
+        
     def train (
         *args
     ):
         raise NotImplementedError("Not implemented")
         
     def load_models (self):
-        file_path = self.savePath + "/" + self.actor_model.name + ".ckpt"
+        file_path = self.save_path + "/" + self.actor_model.name + ".ckpt"
         checkpoint = torch.load(file_path)
         self.actor_model.load_state_dict(checkpoint['model_state_dict'])
         self.actor_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         
-        file_path = self.savePath + "/" + self.critic_local1.name + ".ckpt"
+        file_path = self.save_path + "/" + self.critic_local1.name + ".ckpt"
         checkpoint = torch.load(file_path)
         self.critic_local1.load_state_dict(checkpoint['model_state_dict'])
         self.critic_optimizer1.load_state_dict(checkpoint['optimizer_state_dict'])
         
-        file_path = self.savePath + "/" + self.critic_local2.name + ".ckpt"
+        file_path = self.save_path + "/" + self.critic_local2.name + ".ckpt"
         checkpoint = torch.load(file_path)
         self.critic_local2.load_state_dict(checkpoint['model_state_dict'])
         self.critic_optimizer2.load_state_dict(checkpoint['optimizer_state_dict'])
         
-        file_path = self.savePath + "/" + self.critic_target1.name + ".ckpt"
+        file_path = self.save_path + "/" + self.critic_target1.name + ".ckpt"
         checkpoint = torch.load(file_path)
         self.critic_target1.load_state_dict(checkpoint['model_state_dict'])
         
-        file_path = self.savePath + "/" + self.critic_target2.name + ".ckpt"
+        file_path = self.save_path + "/" + self.critic_target2.name + ".ckpt"
         checkpoint = torch.load(file_path)
         self.critic_target2.load_state_dict(checkpoint['model_state_dict'])
         
     def save_models (self):
-        if not path.exists(self.savePath):
-            makedirs(self.savePath)
-        file_path = self.savePath + "/" + self.actor_model.name + ".ckpt"
+        if not path.exists(self.save_path):
+            makedirs(self.save_path)
+        file_path = self.save_path + "/" + self.actor_model.name + ".ckpt"
         torch.save({
             'model_state_dict': self.actor_model.state_dict(),
             'optimizer_state_dict': self.actor_optimizer.state_dict()}, 
             file_path)
         
-        file_path = self.savePath + "/" + self.critic_local1.name + ".ckpt"
+        file_path = self.save_path + "/" + self.critic_local1.name + ".ckpt"
         torch.save({
             'model_state_dict': self.critic_local1.state_dict(),
             'optimizer_state_dict': self.critic_optimizer1.state_dict()}, 
             file_path)
         
-        file_path = self.savePath + "/" + self.critic_local2.name + ".ckpt"
+        file_path = self.save_path + "/" + self.critic_local2.name + ".ckpt"
         torch.save({
             'model_state_dict': self.critic_local2.state_dict(),
             'optimizer_state_dict': self.critic_optimizer2.state_dict()}, 
             file_path)
         
-        file_path = self.savePath + "/" + self.critic_target1.name + ".ckpt"
+        file_path = self.save_path + "/" + self.critic_target1.name + ".ckpt"
         torch.save({
             'model_state_dict': self.critic_target1.state_dict()}, 
             file_path)
         
-        file_path = self.savePath + "/" + self.critic_target2.name + ".ckpt"
+        file_path = self.save_path + "/" + self.critic_target2.name + ".ckpt"
         torch.save({
             'model_state_dict': self.critic_target2.state_dict()}, 
             file_path)
