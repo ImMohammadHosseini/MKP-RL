@@ -39,6 +39,8 @@ class EncoderSACTrainer_t3(SACBase):
         self.info = info
         
         self.dim = dim
+        self.target_entropy = 0.98 * -np.log(1 / (self.actor_model.config.inst_obs_size * \
+                                                  self.actor_model.config.knapsack_obs_size))
         print(self.save_path)
         if path.exists(self.save_path):
             print('hhhhhhh')#TODO delete
@@ -53,6 +55,7 @@ class EncoderSACTrainer_t3(SACBase):
     ):
         act_dist = Categorical(firstGenerated)
         act = act_dist.sample()
+        #print(act)
         #prob = firstGenerated
         z = firstGenerated == 0.0
         z = z.float() * 1e-8
@@ -90,8 +93,8 @@ class EncoderSACTrainer_t3(SACBase):
         elif all(eCap >= weight):
             #dw = np.max(weight[np.where((eCap-weight)==np.min(eCap-weight))[0]])
             #reward = np.mean(+value / dw)
-            #reward = np.mean(+(np.mean(value / weight)))
-            reward = np.mean(value/10)
+            reward = np.mean(+(np.mean(value / weight)))
+            #reward = np.mean(value/10)
 
             knapSack.removeExpectedCap(weight)
             accepted_action = np.append(accepted_action,
@@ -101,8 +104,8 @@ class EncoderSACTrainer_t3(SACBase):
             #dw = np.max(weight[np.where((eCap-weight)==np.min(eCap-weight))[0]])
             #1idx = int(np.where((eCap-weight)==np.min(eCap-weight))[0])
             #reward = np.mean(-value / dw) 
-            #reward = np.mean(-(np.mean(value / weight)))
-            reward = np.mean(-value/10)
+            reward = np.mean(-(np.mean(value / weight)))
+            #reward = np.mean(-value/10)
 
         reward = torch.tensor([reward]).unsqueeze(0) 
         #print(inst_act)
@@ -141,7 +144,6 @@ class EncoderSACTrainer_t3(SACBase):
         self.critic_optimizer1.zero_grad()
         self.critic_optimizer2.zero_grad()
         
-        
         #generatedAction = self.actor_model.generateOneStep(nextObservation)
         firstGenerated, secondGenerated, _ = self.actor_model.generateOneStep(
             newObs, torch.tensor([1], dtype=torch.int64), None)
@@ -151,19 +153,19 @@ class EncoderSACTrainer_t3(SACBase):
         next1_values = self.critic_target1(newObs)
         next2_values = self.critic_target2(newObs)
         
+        
         soft_state_values = (prob * (
                     torch.min(next1_values, next2_values) - self.alpha * log_prob
             )).sum(dim=1)
         
-        
         next_q_values = rewards.squeeze() + ~done * self.config.discount_rate*soft_state_values
         
         soft_q1_values = self.critic_local1(obs)
-        
         soft_q1_values = soft_q1_values.gather(1, acts[:,:,0]).squeeze(-1)
         
         soft_q2_values = self.critic_local2(obs)
         soft_q2_values = soft_q2_values.gather(1, acts[:,:,0]).squeeze(-1)
+        
         critic1_square_error = torch.nn.MSELoss(reduction="none")(soft_q1_values.float(), next_q_values.float())
         critic2_square_error = torch.nn.MSELoss(reduction="none")(soft_q2_values.float(), next_q_values.float())
         
@@ -175,8 +177,8 @@ class EncoderSACTrainer_t3(SACBase):
         
         
         critic1_loss.backward(retain_graph=True)
-        self.critic_optimizer1.step()
         critic2_loss.backward(retain_graph=True)
+        self.critic_optimizer1.step()
         self.critic_optimizer2.step()
         
         #actor loss
@@ -204,12 +206,12 @@ class EncoderSACTrainer_t3(SACBase):
         self.alpha_optimizer.step()
         self.alpha = self.log_alpha.exp() 
         
-        self.soft_update(self.critic_target1, self.critic_local1)
-        self.soft_update(self.critic_target2, self.critic_local2)
+        self.soft_update(self.config.tau)
+        #self.soft_update(self.critic_target2, self.critic_local2)
     
-    def soft_update(self, target_model, origin_model):
-        for target_param, local_param in zip(target_model.parameters(), origin_model.parameters()):
-            target_param.data.copy_(self.config.tau * local_param.data + (1 - self.config.tau) * target_param.data)
+    #def soft_update(self, target_model, origin_model):
+    #    for target_param, local_param in zip(target_model.parameters(), origin_model.parameters()):
+    #        target_param.data.copy_(self.config.tau * local_param.data + (1 - self.config.tau) * target_param.data)
         
         
         
