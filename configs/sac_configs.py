@@ -7,7 +7,7 @@
 from dataclasses import dataclass
 
 @dataclass
-class FractionSACConfig(object):
+class SACConfig(object):
     """
     Configuration class for SACTrainer
     """
@@ -19,9 +19,9 @@ class FractionSACConfig(object):
         buffer_size: int = int(1e6),
         alpha_initial: float = 1.,
         discount_rate: float = 0.99,
-        actor_lr: float = 1e-3,
-        critic_lr: float = 1e-3,
-        alpha_lr: float = 1e-3,
+        actor_lr: float = 1e-5,
+        critic_lr: float = 1e-5,
+        alpha_lr: float = 1e-5,
         tau: float = 0.01,
     ):
         '''gradient_steps_per_itr,
