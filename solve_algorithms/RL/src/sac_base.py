@@ -39,9 +39,8 @@ class SACBase():
         self.critic_optimizer2 = Adam(self.critic_local2.parameters(), 
                                       lr=self.config.critic_lr)
         
+        self.soft_update(1.)
         
-        self.target_entropy = 0.98 * -np.log(1 / self.actor_model.config.inst_obs_size) * \
-            -np.log(1 / self.actor_model.config.knapsack_obs_size)
         self.log_alpha = torch.tensor(np.log(self.config.alpha_initial), requires_grad=True)
         self.alpha = self.log_alpha
         self.alpha_optimizer = Adam([self.log_alpha], lr=self.config.alpha_lr)
@@ -105,6 +104,13 @@ class SACBase():
         *args
     ):
         raise NotImplementedError("Not implemented")
+    
+    def soft_update(self, tau):
+        for target_param, local_param in zip(self.critic_target1.parameters(), self.critic_local1.parameters()):
+            target_param.data.copy_(tau * local_param.data + (1 - tau) * target_param.data)
+        
+        for target_param, local_param in zip(self.critic_target2.parameters(), self.critic_local2.parameters()):
+            target_param.data.copy_(tau * local_param.data + (1 - tau) * target_param.data)
         
     def load_models (self):
         file_path = self.save_path + "/" + self.actor_model.name + ".ckpt"
