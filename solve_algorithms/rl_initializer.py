@@ -1,31 +1,31 @@
 
 
-from RL.fraction_sac_trainer import FractionSACTrainer
-from RL.encoder_ppo_trainer import (
+from .RL.fraction_sac_trainer import FractionSACTrainer
+from .RL.encoder_ppo_trainer import (
     EncoderPPOTrainer_t2, 
     EncoderPPOTrainer_t3
     )
-from RL.encoder_sac_trainer import EncoderSACTrainer_t3
-from RL.solve_algorithms.RL.whole_ppo_trainer import (
+from .RL.encoder_sac_trainer import EncoderSACTrainer_t3
+from .RL.whole_ppo_trainer import (
     WholePPOTrainer_t1,
     WholePPOTrainer_t2,
     WholePPOTrainer_t3
     )
-from RL.fraction_ppo_trainer import (
+from .RL.fraction_ppo_trainer import (
     FractionPPOTrainer_t1,
     FractionPPOTrainer_t2,
     FractionPPOTrainer_t3
     )
 
-from .configs.ppo_configs import PPOConfig
-from .configs.sac_configs import SACConfig
-from .configs.transformers_model_configs import TransformerKnapsackConfig
-from .src.data_structure.state_prepare import StatePrepare
+from configs.ppo_configs import PPOConfig
+from configs.sac_configs import SACConfig
+from configs.transformers_model_configs import TransformerKnapsackConfig
+from src.data_structure.state_prepare import StatePrepare
 
-from .src.models.transformer import TransformerKnapsack
-from .src.models.EncoderMLP import EncoderMLPKnapsack, RNNMLPKnapsack
-from .src.models.critic_model import CriticNetwork1, CriticNetwork2
-from RL.src.env import KnapsackAssignmentEnv
+from src.models.transformer import TransformerKnapsack
+from src.models.EncoderMLP import EncoderMLPKnapsack, RNNMLPKnapsack
+from src.models.critic_model import CriticNetwork1, CriticNetwork2
+from .RL.src.env import KnapsackAssignmentEnv
 
 
 def algorithmInitializer (instance_obs_size, kp_obs_size, info, opts, no_change_long, 

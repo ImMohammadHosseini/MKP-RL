@@ -4,40 +4,43 @@
 import numpy as np
 from src.data_structure.state_prepare import StatePrepare
 from typing import Optional
-from ACO.graph import Graph
+from .ACO.graph import Graph
+from .ACO.colony import Colony
 
 class ACOSelect():
     def __init__ (
         self,
-        dim: int,
+        num_instance: int,
         state_dataClass: StatePrepare,
     ):
         self.statePrepare = state_dataClass
-        self.dim = dim
+        #self.greedy_num = num_instance
+        #self.statePrepare = state_dataClass
+        #self.dim = dim
         #self.no_change_long = 3
         #self.reset()
         
     def _choose_actions (
         self,
         iter_num: int,
+        ant_num: int = 100
     ):
-        caps,weightValues = self.statePrepare.getObservation1()
-        values = weightValues[:, self.dim:]
-        weights = weightValues[:, :self.dim]
-        print(caps.shape)
-        print(values.shape)
-        print(weights.shape)
+        caps, weightValues = self.statePrepare.getObservation1()
+        caps = caps[:, :len(self.statePrepare.getObservedInstValue(0)):]
+        values = weightValues[:, -len(self.statePrepare.getObservedInstValue(0)):]
+        weights = weightValues[:, :len(self.statePrepare.getObservedInstValue(0)):]
         
         graph = Graph(weights, values, caps)
         
         #accepted_actions = np.zeros((0,2), dtype= int)
-        ants = All_ants(m, self.W)
+        ants = Colony(ant_num)
         for i in range(iter_num):
-            ants.do_cycles(self)
-            accepted_actions = ants.best
-            self.update_phs(ants)
-    
-        return accepted_actions, steps
+            ants.do_cycles(graph)
+            accepted_actions = ants.get_accepted_actions(graph)
+            graph.update_pheromones()
+            print('1')
+        print(accepted_actions)
+        return accepted_actions, 0
 
     def test_step (
         self,
@@ -62,4 +65,7 @@ class ACOSelect():
             score += ks.getValues()
             remain_cap_ratio.append(ks.getRemainCap()/ks.getCap())
         return score, np.mean(remain_cap_ratio)
+    
+    def reset(self):
+        self.statePrepare.reset()
     

@@ -17,10 +17,11 @@ from data.dataProducer import multiObjectiveDimentionalKP
 
 from src.data_structure.state_prepare import StatePrepare
 #from src.transformer_trainer import TransformerTrainer
-from solve_algorithms.algorithm_initializer import algorithmInitializer
+from solve_algorithms.rl_initializer import algorithmInitializer
 from solve_algorithms.rl_trainer import train_extra
 from solve_algorithms.random_select import RandomSelect
 from solve_algorithms.greedy_select import GreedySelect
+from solve_algorithms.aco_select import ACOSelect
 
 
 
@@ -37,7 +38,7 @@ parser.add_option("-P", "--output", action="store", dest="out",
                   default='type3')
 
 parser.add_option("-D", "--dim", action="store", dest="dim", default=2)
-parser.add_option("-O", "--objective", action="store", dest="obj", default=1)
+parser.add_option("-O", "--objective", action="store", dest="obj", default=2)
 parser.add_option("-K", "--knapsaks", action="store", dest="kps", default=3)
 parser.add_option("-N", "--instances", action="store", dest="instances", 
                   default=15)
@@ -115,16 +116,46 @@ def randomAlgorithm (statePrepare):
     random_select.test_step()#TODO
     
 def greedyAlgorithm (c, w, v):
-    for i in range (opts.obj): exec('score_history'+str(i)+'=[]')
-    remain_cap_history = []; steps_history = []
+    
     statePrepare = StatePrepare(INFOS)
     greedy_select = GreedySelect(opts.instances, statePrepare)
-
+    greedy_methods = ['minw', 'maxv', 'maxvdw']
+    
+    for gm in greedy_methods:
+        for i in range (opts.obj): exec('score_history'+str(i)+'=[]')
+        remain_cap_history = []; steps_history = []
+        for i in range(PROBLEMS_NUM):
+            greedy_select.statePrepare.setProblem(c[i], w[i], v[i])
+            greedy_select.reset()
+    
+            score, remain_cap_ratio, steps = greedy_select.test_step(gm)
+            for idx, val in enumerate(score):
+                exec('score_history'+str(idx) +'.append(val)')        
+            remain_cap_history.append(remain_cap_ratio)
+            steps_history.append(steps)
+    
+            print('problem', i, 'scores', score, 'steps', steps, 
+                  'remain_cap_ratio %.3f'% np.mean(remain_cap_ratio))
+        
+            
+        results_dict = {'remain_cap': remain_cap_history, 'steps': steps_history}
+        for idx in range(opts.obj):results_dict['score'+str(idx)]=eval('score_history'+str(idx))
+        if not path.exists(RESULT_PATH): makedirs(RESULT_PATH)
+        with open(RESULT_PATH+'/greedy'+'_'+gm+'.pickle', 'wb') as file:
+            pickle.dump(results_dict, file)
+        
+def ACOAlgorithm (c, w, v):
+    
+    statePrepare = StatePrepare(INFOS)
+    aco_select = ACOSelect(opts.instances, statePrepare)
+    
+    for i in range (opts.obj): exec('score_history'+str(i)+'=[]')
+    remain_cap_history = []; steps_history = []
     for i in range(PROBLEMS_NUM):
-        greedy_select.statePrepare.setProblem(c[i], w[i], v[i])
-        greedy_select.reset()
+        aco_select.statePrepare.setProblem(c[i], w[i], v[i])
+        aco_select.reset()
 
-        score, remain_cap_ratio, steps = greedy_select.test_step()
+        score, remain_cap_ratio, steps = aco_select.test_step()
         for idx, val in enumerate(score):
             exec('score_history'+str(idx) +'.append(val)')        
         remain_cap_history.append(remain_cap_ratio)
@@ -137,9 +168,8 @@ def greedyAlgorithm (c, w, v):
     results_dict = {'remain_cap': remain_cap_history, 'steps': steps_history}
     for idx in range(opts.obj):results_dict['score'+str(idx)]=eval('score_history'+str(idx))
     if not path.exists(RESULT_PATH): makedirs(RESULT_PATH)
-    with open(RESULT_PATH+'/greedy'+'_'+'.pickle', 'wb') as file:
+    with open(RESULT_PATH+'/aco'+'.pickle', 'wb') as file:
         pickle.dump(results_dict, file)
-        
     
 def ppo_test(env, ppoTrainer, flags, c, w, v):
     
@@ -191,16 +221,14 @@ def ppo_test(env, ppoTrainer, flags, c, w, v):
 if __name__ == '__main__':
     
     c, w, v = dataInitializer()
-    #greedyScores = greedyAlgorithm(statePrepareList)
     
-    #for algorithm_type in PPO_ALGORITHMS:
-    #    for output_type in OUTPUT_TYPES:False, False
     env, trainer, flags = algorithmInitializer (INSTANCE_OBS_SIZE, KNAPSACK_OBS_SIZE, 
                                                 INFOS, opts, NO_CHANGE_LONG, 
                                                 SAVE_PATH, DEVICE)
     if opts.mode == 'train':
         train_extra(env, trainer, N_TRAIN_STEPS, PROBLEMS_NUM, flags, c, w, v, RESULT_PATH, opts)
     elif opts.mode == 'test':
+        ACOAlgorithm(c, w, v)
         greedyAlgorithm(c, w, v)
         ppo_test(env, trainer, flags, c, w, v)
     
