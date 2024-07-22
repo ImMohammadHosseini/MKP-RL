@@ -1,6 +1,7 @@
 
 import numpy as np
 from random import randint
+from copy import deepcopy
 
 
 class Ant:
@@ -11,7 +12,7 @@ class Ant:
         self.path_weight = np.zeros((self.ks_num, graph.weights.shape[1]), dtype=float)
         if (self.graph.nodes[start].weight < self.graph.caps[self.graph.nodes[start].ks_id]).all():
             self.path_weight[self.graph.nodes[start].ks_id] += self.graph.nodes[start].weight
-        self.path_value = self.graph.nodes[start].value
+        self.path_value = deepcopy(self.graph.nodes[start].value)
         
       
     def get_path (self):
@@ -84,7 +85,7 @@ class Colony:
         
         self.best = None
         self.min_sum = float("inf")
-        self.max_value = 0
+        self.max_value = np.array(0)
         
         
     def reset_ants(self, graph):
@@ -102,8 +103,7 @@ class Colony:
         return accepted_actions
             
     def do_cycles(self, graph):
-        print(self.max_value)
-        if self.max_value == 0:
+        if (self.max_value == 0).all():
             self.max_value = np.zeros((graph.values.shape[1]), dtype=float)
         self.reset_ants(graph=graph)
         for ant in self.ants:
@@ -114,3 +114,4 @@ class Colony:
                 assert (ant.path_weight <= graph.caps).all()
                 self.max_value = ant.path_value
                 self.best = ant.path
+            
