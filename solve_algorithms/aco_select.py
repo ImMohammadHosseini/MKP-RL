@@ -23,7 +23,7 @@ class ACOSelect():
     def _choose_actions (
         self,
         iter_num: int,
-        ant_num: int = 100
+        ant_num: int = 50
     ):
         caps, weightValues = self.statePrepare.getObservation1()
         caps = caps[:, :len(self.statePrepare.getObservedInstValue(0)):]
@@ -38,13 +38,11 @@ class ACOSelect():
             ants.do_cycles(graph)
             accepted_actions = ants.get_accepted_actions(graph)
             graph.update_pheromones()
-            print('1')
-        print(accepted_actions)
         return accepted_actions, 0
 
     def test_step (
         self,
-        iter_num: int=100
+        iter_num: int=20
     ):
         accepted_actions, steps = self._choose_actions(iter_num)
         self.statePrepare.changeNextState(accepted_actions)
