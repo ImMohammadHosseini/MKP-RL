@@ -14,15 +14,18 @@ class SACConfig(object):
     def __init__ (
         self,
         generat_link_number: int = 5,
-        normal_batch_size: int = 32,
-        extra_batch_size: int = 32,
-        buffer_size: int = int(1e6),
+        normal_batch_size: int = 64,
+        extra_batch_size: int = 64,
+        buffer_size: int = int(1e7),
         alpha_initial: float = 1.,
         discount_rate: float = 0.99,
-        actor_lr: float = 1e-5,
-        critic_lr: float = 1e-5,
-        alpha_lr: float = 1e-5,
-        tau: float = 0.01,
+        actor_init_lr: float = 1e-5,
+        actor_final_lr: float = 1e-7,
+        critic_init_lr: float = 1e-5,
+        critic_final_lr:float = 1e-7,
+        alpha_init_lr: float = 1e-5,
+        alpha_final_lr: float = 1e-7,
+        tau: float = 0.005,
     ):
         '''gradient_steps_per_itr,
         max_episode_length_eval=None,
@@ -49,8 +52,11 @@ class SACConfig(object):
         self.buffer_size = buffer_size
         self.alpha_initial = alpha_initial
         self.discount_rate = discount_rate
-        self.actor_lr = actor_lr
-        self.critic_lr = critic_lr
-        self.alpha_lr = alpha_lr
+        self.actor_init_lr = actor_init_lr
+        self.actor_final_lr = actor_final_lr
+        self.critic_init_lr = critic_init_lr
+        self.critic_final_lr = critic_final_lr
+        self.alpha_init_lr = alpha_init_lr
+        self.alpha_final_lr = alpha_final_lr
         self.tau = tau
         

@@ -15,12 +15,11 @@ def train_extra (env, trainer, train_steps, problem_num, flags, c, w, v, r_path,
         ppo_train_extra(env, trainer, train_steps, problem_num, flags, c, w, v, r_path, opts)
         
 def sac_train_extra (env, sacTrainer, train_steps, problem_num, flags, c, w, v, r_path, opts):
-    best_reward = 35
+    best_reward = 10
     
     #reward_history = []; score_history = [[] for i in range(opts.obj)]; 
     #remain_cap_history = []; steps_history = []
     result_path=r_path+'/'+opts.alg+'_'+opts.out+'.pickle'
-    print(result_path)
     with open(result_path, 'rb') as handle:
         results = pickle.load(handle)
     reward_history = results['reward']
@@ -35,7 +34,12 @@ def sac_train_extra (env, sacTrainer, train_steps, problem_num, flags, c, w, v, 
     repeated = 0
     #addition_steps = sacTrainer.config.generat_link_number if flags[0] else 1
     change_problem = True
-    for i in tqdm(range(200000, train_steps)):
+    for i in tqdm(range(19000,train_steps)):
+        if i % 100000 == 0 and i != 0:
+            sacTrainer.memory.save_buffer(i)
+            sacTrainer.save_models(i)
+            sacTrainer.memory.reset()
+            best_reward = -10
         #for batch in range(len(statePrepares)):
         if change_problem:
             pn = np.random.randint(problem_num)
@@ -49,7 +53,7 @@ def sac_train_extra (env, sacTrainer, train_steps, problem_num, flags, c, w, v, 
         while not done:
             #print(externalObservation)
             internalObservations, actions, accepted_action, rewards, steps\
-                = sacTrainer.make_steps(externalObservation, env.statePrepare, 
+                = sacTrainer.make_steps(i, externalObservation, env.statePrepare, 
                                         flags[0], flags[1])
             #print(rewards)
             #print(torch.cat(rewards,0).sum())
@@ -103,6 +107,7 @@ def sac_train_extra (env, sacTrainer, train_steps, problem_num, flags, c, w, v, 
             if not path.exists(r_path): makedirs(r_path)
             with open(r_path+'/'+opts.alg+'_'+opts.out+'.pickle', 'wb') as file:
                 pickle.dump(results_dict, file)
+         
                 
 def ppo_train_extra (env, ppoTrainer, train_steps, problem_num, flags, c, w, v, r_path, opts):
     #statePrepares = np.array(statePrepareList)
