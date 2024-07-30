@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import List
 from .knapsack import Knapsack
 from typing import List, Optional
-from sklearn.metrics.pairwise import cosine_similarity
+#from sklearn.metrics.pairwise import cosine_similarity
 
 @dataclass
 class StatePrepare:
@@ -77,21 +77,26 @@ class StatePrepare:
         self.weights = weights
         self.values = values
         #self._setKnapsack(allCapacities)
+        #print(allCapacities)
         self.knapsacks = [Knapsack(i, c, self.weights.shape[1], self.values.shape[1]) for i, c in enumerate(allCapacities)]
         if self.instanceObsSize == None:
             self.instanceObsSize = len(self.weights)
-        if self.knapsackObsSize == None: 
+        if self.knapsackObsSize == None:
             self.knapsackObsSize = len(allCapacities)
 
-    def reset (self) -> None:
+    def reset (self, change_problem=True) -> None:
         self.pad_len = 0
         self.ks_order = None
-        shuffle = np.random.permutation(len(self.weights))
-        self.remainInstanceWeights = self.weights[shuffle]
-        self.remainInstanceValues = self.values[shuffle]
-        shuffle = np.random.permutation(len(self.knapsacks))
+        if change_problem:
+            self.shuffle_inst = np.random.permutation(len(self.weights))
+            self.shuffle_ks = np.random.permutation(len(self.knapsacks))
+        
+        self.remainInstanceWeights = self.weights[self.shuffle_inst]
+        self.remainInstanceValues = self.values[self.shuffle_inst]
+        #shuffle = np.random.permutation(len(self.knapsacks))
+        
         for k in self.knapsacks: k.reset()
-        self.knapsacks = list(np.array(self.knapsacks)[shuffle])
+        self.knapsacks = list(np.array(self.knapsacks)[self.shuffle_ks])
         
     #def _setKnapsack (self, allCapacities):
     #    self.knapsacks = [Knapsack(i, c) for i, c in enumerate(allCapacities)]
@@ -99,7 +104,7 @@ class StatePrepare:
     def getObservation1 (self) -> np.ndarray:
         self.stateCaps = np.array([k.getRemainCap() \
                                    for k in self.knapsacks])
-            
+        
         '''ks_sim = cosine_similarity(self.ks_main_data, self.stateCaps, dense_output=False)
         if not (np.diagonal(ks_sim) > .9).all():
             self.ks_order = [0]*len(self.stateCaps)
@@ -111,9 +116,10 @@ class StatePrepare:
             self.stateCaps = self.stateCaps[self.ks_order]
         else :'''
         self.ks_order = None
-        self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps),self.values.shape[1])), 
+        self.stateCaps = np.append(self.stateCaps, np.zeros((len(self.stateCaps), self.values.shape[1])), 
                                    axis=1)
-        
+        #print(self.stateCaps)
+        #print(self.dd)
         '''inst_sim = cosine_similarity(self.instance_main_data[:len(self.remainInstanceWeights)], 
                                      self.remainInstanceWeights, dense_output=False)
         if not (np.diagonal(inst_sim) > .9).all():
@@ -128,14 +134,19 @@ class StatePrepare:
         
         
         self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
+        #print(self.pad_len)
         
         if self.pad_len <= 0:
             self.pad_len = 0
             self.stateWeightValues = np.append(self.remainInstanceWeights[
                 :self.instanceObsSize], self.remainInstanceValues[
                     :self.instanceObsSize], axis=1)
+            #print(self.stateWeightValues)
             self.remainInstanceWeights = self.remainInstanceWeights[self.instanceObsSize:]
             self.remainInstanceValues = self.remainInstanceValues[self.instanceObsSize:]
+            #print(self.remainInstanceValues)
+            #print(self.remainInstanceWeights)
+            #print(self.dd)
         else: 
             padding = np.zeros((1, self.remainInstanceWeights.shape[1]+self.remainInstanceValues.shape[1])) 
             self.stateWeightValues = self._pad_left(np.append(
@@ -318,8 +329,7 @@ class StatePrepare:
             #external_reward.append(value / np.sum(weight))
             
             deleteList.append(inst_act)
-        #print(len(deleteList))
-        #print('len dd', len(self.stateWeightValues))
+        
         
         self.stateWeightValues = np.delete(self.stateWeightValues, 
                                            deleteList, axis=0)
@@ -328,11 +338,11 @@ class StatePrepare:
         self.remainInstanceWeights = np.append(self.remainInstanceWeights,
                                                self.stateWeightValues[:,:-self.values.shape[1]],
                                                axis=0)
-        
+
         self.remainInstanceValues = np.append(self.remainInstanceValues,
                                               self.stateWeightValues[:,-self.values.shape[1]:],
                                               axis=0)
         
         for k in self.knapsacks: k.resetExpectedCap()
-        
+
         #return [external_reward]

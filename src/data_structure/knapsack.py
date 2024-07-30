@@ -18,6 +18,7 @@ class Knapsack:
                  dim: int,
                  obj:int
     ):
+        
         self.knapsackId = kid
         self.capacities = capacities
         self.dim = dim
@@ -48,6 +49,7 @@ class Knapsack:
         self.instanceWeights = np.append(self.instanceWeights, 
                                          np.expand_dims(instWeight, axis=0), 
                                          axis=0)
+        
 
     '''def score_ratio (self):
         ratio = 0

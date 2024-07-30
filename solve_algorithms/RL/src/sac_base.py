@@ -33,17 +33,17 @@ class SACBase():
         self.critic_target2 = critic_target2
         
         self.actor_optimizer = Adam(self.actor_model.parameters(), 
-                                    lr=self.config.actor_lr)
+                                    lr=self.config.actor_init_lr)
         self.critic_optimizer1 = Adam(self.critic_local1.parameters(),
-                                      lr=self.config.critic_lr)
+                                      lr=self.config.critic_init_lr)
         self.critic_optimizer2 = Adam(self.critic_local2.parameters(), 
-                                      lr=self.config.critic_lr)
+                                      lr=self.config.critic_init_lr)
         
         self.soft_update(1.)
         
         self.log_alpha = torch.tensor(np.log(self.config.alpha_initial), requires_grad=True)
         self.alpha = self.log_alpha
-        self.alpha_optimizer = Adam([self.log_alpha], lr=self.config.alpha_lr)
+        self.alpha_optimizer = Adam([self.log_alpha], lr=self.config.alpha_init_lr)
         
         self.memory = SACReplayBuffer(self.config.generat_link_number, 
                                       self.config, self.actor_model.config, action_num)
@@ -61,8 +61,26 @@ class SACBase():
     ):
         raise NotImplementedError("Not implemented")
         
+    def decay_learning_rates (
+        self,
+        step_num: int,
+        training_steps:int,
+    ):
+        actor_new_lr = self.config.actor_init_lr + (self.config.actor_final_lr - self.config.actor_init_lr) * (step_num / training_steps)
+        for param_group in self.actor_optimizer.param_groups:
+            param_group['lr'] = actor_new_lr
+        critic_new_lr = self.config.critic_init_lr + (self.config.critic_final_lr - self.config.critic_init_lr) * (step_num / training_steps)
+        for param_group in self.critic_optimizer1.param_groups:
+            param_group['lr'] = critic_new_lr
+        for param_group in self.critic_optimizer2.param_groups:
+            param_group['lr'] = critic_new_lr
+        alpha_new_lr = self.config.alpha_init_lr + (self.config.alpha_final_lr - self.config.alpha_init_lr) * (step_num / training_steps)
+        for param_group in self.alpha_optimizer.param_groups:
+            param_group['lr'] = alpha_new_lr
+        
     def make_steps (
         self,
+        episod_num: int,
         externalObservation: torch.tensor,
         statePrepares: np.ndarray,
         fraction_flag: bool,
@@ -83,7 +101,7 @@ class SACBase():
             actions.append(act.unsqueeze(0))#; probs.append(prob)
             #print(actions)
             #print(probs)
-            internalReward, accepted_action, step, prompt = self.normal_reward(
+            internalReward, accepted_action, step, prompt = self.normal_reward(episod_num,
                 act, accepted_action, step, prompt, statePrepares)
             
             internalObservations.append(prompt)
@@ -136,33 +154,37 @@ class SACBase():
         checkpoint = torch.load(file_path)
         self.critic_target2.load_state_dict(checkpoint['model_state_dict'])
         
-    def save_models (self):
-        if not path.exists(self.save_path):
-            makedirs(self.save_path)
-        file_path = self.save_path + "/" + self.actor_model.name + ".ckpt"
+    def save_models (
+        self,
+        episod_num: Optional[int]=None,
+    ):
+        save_path = self.save_path+str(episod_num)+'/' if episod_num != None else self.save_path
+        if not path.exists(save_path):
+            makedirs(save_path)
+        file_path = save_path + "/" + self.actor_model.name + ".ckpt"
         torch.save({
             'model_state_dict': self.actor_model.state_dict(),
             'optimizer_state_dict': self.actor_optimizer.state_dict()}, 
             file_path)
         
-        file_path = self.save_path + "/" + self.critic_local1.name + ".ckpt"
+        file_path = save_path + "/" + self.critic_local1.name + ".ckpt"
         torch.save({
             'model_state_dict': self.critic_local1.state_dict(),
             'optimizer_state_dict': self.critic_optimizer1.state_dict()}, 
             file_path)
         
-        file_path = self.save_path + "/" + self.critic_local2.name + ".ckpt"
+        file_path = save_path + "/" + self.critic_local2.name + ".ckpt"
         torch.save({
             'model_state_dict': self.critic_local2.state_dict(),
             'optimizer_state_dict': self.critic_optimizer2.state_dict()}, 
             file_path)
         
-        file_path = self.save_path + "/" + self.critic_target1.name + ".ckpt"
+        file_path = save_path + "/" + self.critic_target1.name + ".ckpt"
         torch.save({
             'model_state_dict': self.critic_target1.state_dict()}, 
             file_path)
         
-        file_path = self.save_path + "/" + self.critic_target2.name + ".ckpt"
+        file_path = save_path + "/" + self.critic_target2.name + ".ckpt"
         torch.save({
             'model_state_dict': self.critic_target2.state_dict()}, 
             file_path)

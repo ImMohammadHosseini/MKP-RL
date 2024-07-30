@@ -15,32 +15,37 @@ def train_extra (env, trainer, train_steps, problem_num, flags, c, w, v, r_path,
         ppo_train_extra(env, trainer, train_steps, problem_num, flags, c, w, v, r_path, opts)
         
 def sac_train_extra (env, sacTrainer, train_steps, problem_num, flags, c, w, v, r_path, opts):
-    best_reward = 35
+    best_reward = -10
     
     #reward_history = []; score_history = [[] for i in range(opts.obj)]; 
     #remain_cap_history = []; steps_history = []
-    result_path=r_path+'/'+opts.alg+'_'+opts.out+'.pickle'
-    print(result_path)
+    '''result_path=r_path+'/'+opts.alg+'_'+opts.out+'.pickle'
     with open(result_path, 'rb') as handle:
         results = pickle.load(handle)
     reward_history = results['reward']
-    score_history = results['score'] 
+    score_history = results['score']
                      
     remain_cap_history = results['remain_cap']
-    steps_history = results['steps'] 
-    sacTrainer.memory.load_buffer()
+    steps_history = results['steps']
+    sacTrainer.memory.load_buffer()'''
     #TODO delete 
     #n_steps = 0
     #n_steps1 = 0
     repeated = 0
     #addition_steps = sacTrainer.config.generat_link_number if flags[0] else 1
     change_problem = True
-    for i in tqdm(range(200000, train_steps)):
+    for i in tqdm(range(104000,train_steps)):
+        '''if i % 100000 == 0 and i != 0:
+            #sacTrainer.memory.save_buffer(i)
+            sacTrainer.save_models(i)
+            sacTrainer.memory.reset()
+            best_reward = 0'''
         #for batch in range(len(statePrepares)):
         if change_problem:
             pn = np.random.randint(problem_num)
             env.statePrepare.setProblem(c[pn], w[pn], v[pn])
-        
+        if i % 100 == 0:
+            sacTrainer.decay_learning_rates(i, train_steps)
         externalObservation, _ = env.reset(change_problem)
         done = False
         change_problem = True
@@ -49,7 +54,7 @@ def sac_train_extra (env, sacTrainer, train_steps, problem_num, flags, c, w, v, 
         while not done:
             #print(externalObservation)
             internalObservations, actions, accepted_action, rewards, steps\
-                = sacTrainer.make_steps(externalObservation, env.statePrepare, 
+                = sacTrainer.make_steps(i, externalObservation, env.statePrepare, 
                                         flags[0], flags[1])
             #print(rewards)
             #print(torch.cat(rewards,0).sum())
@@ -67,6 +72,7 @@ def sac_train_extra (env, sacTrainer, train_steps, problem_num, flags, c, w, v, 
                     repeated += 1
                 else:repeated = 0
             
+            #print (accepted_action)
             sacTrainer.train('normal')
             if opts.trainMode == 'extra' and ~(accepted_action == [-1,-1]).all():
                 extraReward = rewards
@@ -77,6 +83,8 @@ def sac_train_extra (env, sacTrainer, train_steps, problem_num, flags, c, w, v, 
             externalObservation = externalObservation_
             
         scores, remain_cap_ratios = env.final_score()
+        #print(remain_cap_ratios)
+        #print(sacTrainer.dd)
         #batch_score_per_grredy = scores/greedyScores[batch]
         
         reward_history.append(float(episodeNormalReward))
@@ -103,6 +111,7 @@ def sac_train_extra (env, sacTrainer, train_steps, problem_num, flags, c, w, v, 
             if not path.exists(r_path): makedirs(r_path)
             with open(r_path+'/'+opts.alg+'_'+opts.out+'.pickle', 'wb') as file:
                 pickle.dump(results_dict, file)
+         
                 
 def ppo_train_extra (env, ppoTrainer, train_steps, problem_num, flags, c, w, v, r_path, opts):
     #statePrepares = np.array(statePrepareList)

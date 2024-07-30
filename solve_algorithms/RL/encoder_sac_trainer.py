@@ -27,6 +27,7 @@ class EncoderSACTrainer_t3(SACBase):
         save_path: str,
         config: SACConfig,
         dim: int, 
+        obj: int,
         actor_model: torch.nn.Module,
         critic_local1: torch.nn.Module,
         critic_local2: torch.nn.Module,
@@ -39,11 +40,11 @@ class EncoderSACTrainer_t3(SACBase):
         self.info = info
         
         self.dim = dim
+        self.obj = obj
         self.target_entropy = 0.98 * -np.log(1 / (self.actor_model.config.inst_obs_size * \
                                                   self.actor_model.config.knapsack_obs_size))
-        print(self.save_path)
         if path.exists(self.save_path):
-            print('hhhhhhh')#TODO delete
+            
             self.load_models()
             self.pretrain_need = False
         else: self.pretrain_need = True
@@ -66,6 +67,7 @@ class EncoderSACTrainer_t3(SACBase):
     
     def normal_reward (
         self,
+        episod_num: int,
         action: torch.tensor,
         accepted_action: np.ndarray,
         step, 
@@ -84,35 +86,45 @@ class EncoderSACTrainer_t3(SACBase):
         weight = statePrepares.getObservedInstWeight(inst_act)
         value = statePrepares.getObservedInstValue(inst_act)
         
-        #print(value/10)
-        #print(np.mean(value / 10))
-        #print(np.mean(+(np.mean(value / weight))))
-        #print(self.dd)
-        if inst_act < statePrepares.pad_len: 
-            reward = -4
-        elif all(eCap >= weight):
-            #dw = np.max(weight[np.where((eCap-weight)==np.min(eCap-weight))[0]])
-            #reward = np.mean(+value / dw)
-            reward = np.mean(+(np.mean(value / weight)))
-            #reward = np.mean(value/10)
-
-            knapSack.removeExpectedCap(weight)
-            accepted_action = np.append(accepted_action,
-                                         [[inst_act, ks_act]], 0)[1:]
-
-        else:
-            #dw = np.max(weight[np.where((eCap-weight)==np.min(eCap-weight))[0]])
-            #1idx = int(np.where((eCap-weight)==np.min(eCap-weight))[0])
-            #reward = np.mean(-value / dw) 
-            reward = np.mean(-(np.mean(value / weight)))
-            #reward = np.mean(-value/10)
-
+        if episod_num < 300001:
+            if inst_act < statePrepares.pad_len: 
+                reward = -4
+            elif all(eCap >= weight):
+                #dw = np.max(weight[np.where((eCap-weight)==np.min(eCap-weight))[0]])
+                #reward = np.mean(+value / dw)
+                reward = np.sum(value/(20*self.obj))
+                knapSack.removeExpectedCap(weight)
+                accepted_action = np.append(accepted_action,
+                                             [[inst_act, ks_act]], 0)[1:]
+    
+            else:
+                #dw = np.max(weight[np.where((eCap-weight)==np.min(eCap-weight))[0]])
+                #1idx = int(np.where((eCap-weight)==np.min(eCap-weight))[0])
+                #reward = np.mean(-value / dw) 
+                reward = np.sum(-value/(20*self.obj))
+                #reward = -np.mean(np.sum(value/(weight/eCap).reshape(self.dim,1),1))/50
+        '''elif episod_num >= 100000 and episod_num < 200000:
+            if inst_act < statePrepares.pad_len: 
+                reward = -2
+            elif all(eCap >= weight):
+                reward = np.mean(np.sum(value/weight.reshape(self.dim,1),1))
+                knapSack.removeExpectedCap(weight)
+                accepted_action = np.append(accepted_action,
+                                             [[inst_act, ks_act]], 0)[1:]
+            else:
+                reward = -np.mean(np.sum(value/weight.reshape(self.dim,1),1))
+        elif episod_num >= 200000:
+            if inst_act < statePrepares.pad_len: 
+                reward = -1
+            elif all(eCap >= weight):
+                reward = np.mean(np.sum(value/(weight/eCap).reshape(self.dim,1),1))/50
+                knapSack.removeExpectedCap(weight)
+                accepted_action = np.append(accepted_action,
+                                             [[inst_act, ks_act]], 0)[1:]
+    
+            else: 
+                reward = -np.mean(np.sum(value/(weight/eCap).reshape(self.dim,1),1))/50'''
         reward = torch.tensor([reward]).unsqueeze(0) 
-        #print(inst_act)
-        #print(ks_act)
-        #print(eCap)
-        #print(weight)
-        #print(reward)
         return reward , accepted_action, step, prompt
     
     def train (
