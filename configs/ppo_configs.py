@@ -12,13 +12,13 @@ class PPOConfig(object):
     """
     def __init__ (
         self,
-        generat_link_number: int = 8,
+        generat_link_number: int = 5,
         normal_batch: int = 32,
         ppo_normal_batch_size: int = 8,
         ppo_epochs: int = 10,
         extra_batch: int = 32,
         ppo_extra_batch_size: int = 8,
-        ppo_extra_epochs: int = 10,
+        ppo_extra_epochs: int = 5,
         gamma: float = 0.9,
         gae_lambda: float = 0.97,
         cliprange: float = 0.2,
