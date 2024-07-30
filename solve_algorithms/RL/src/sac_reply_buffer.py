@@ -17,28 +17,35 @@ class SACReplayBuffer ():
                   action_num):
         self.buffer_path ='buffer/SAC/'
         self.link_number = link_number
+        self.sac_config = sacConfig
+        self.model_config = modelConfig
+        self.action_num = action_num
         self.max_buffer_size = sacConfig.buffer_size
         self.normal_batch_size = sacConfig.normal_batch_size
+        self.reset()
         #add buffer for normal train
-        self._normal_transitions_stored = 0
-        self.normal_observation = np.zeros((self.max_buffer_size,
-                                            modelConfig.max_length,
-                                            modelConfig.input_encode_dim))
-        self.normal_new_observation = np.zeros((self.max_buffer_size, 
-                                                modelConfig.max_length,
-                                                modelConfig.input_encode_dim))
-        self.normal_action = np.zeros((self.max_buffer_size, sacConfig.generat_link_number,
-                                      action_num))
-        self.normal_reward = np.zeros((self.max_buffer_size, sacConfig.generat_link_number))
-        self.normal_done = np.zeros(self.max_buffer_size, dtype=np.bool)
-        self.normal_weights = np.zeros(self.max_buffer_size)
-        self.max_weight = 10**-2
-        self.delta = 10**-4
-        self.batch = None
+        
         #TODO add normal_internalObservation normal_steps
         
         #TODO add buffer for extra train
     
+    def reset (self):
+        
+        self._normal_transitions_stored = 0
+        self.normal_observation = np.zeros((self.max_buffer_size,
+                                            self.model_config.max_length,
+                                            self.model_config.input_encode_dim))
+        self.normal_new_observation = np.zeros((self.max_buffer_size, 
+                                                self.model_config.max_length,
+                                                self.model_config.input_encode_dim))
+        self.normal_action = np.zeros((self.max_buffer_size, self.sac_config.generat_link_number,
+                                      self.action_num))
+        self.normal_reward = np.zeros((self.max_buffer_size, self.sac_config.generat_link_number))
+        self.normal_done = np.zeros(self.max_buffer_size, dtype=bool)
+        self.normal_weights = np.zeros(self.max_buffer_size)
+        self.max_weight = 10**-2
+        self.delta = 10**-4
+        self.batch = None
     def update_weights(self, prediction_errors):
         max_error = max(prediction_errors)
         self.max_weight = max(self.max_weight, max_error)
@@ -85,27 +92,38 @@ class SACReplayBuffer ():
         torch.from_numpy(self.normal_done[self.batch])
 
     
-    def save_buffer(self):
-        
-        if not path.exists(self.buffer_path):
-            makedirs(self.buffer_path)
-        np.savetxt(self.buffer_path+'normal_observation.txt', self.normal_observation.reshape(-1))
-        np.savetxt(self.buffer_path+'normal_new_observation.txt', self.normal_new_observation.reshape(-1))
-        np.savetxt(self.buffer_path+'normal_action.txt', self.normal_action.reshape(-1))
-        np.savetxt(self.buffer_path+'normal_reward.txt', self.normal_reward.reshape(-1))
-        np.savetxt(self.buffer_path+'normal_done.txt', self.normal_done)
-        np.savetxt(self.buffer_path+'normal_weights.txt', self.normal_weights)
-        np.savetxt(self.buffer_path+'tm.txt', np.array([self._normal_transitions_stored, self.max_weight]))
+    def save_buffer(
+        self,
+        episod_num: Optional[int]=None,
+    ):
+        bpath = self.buffer_path+str(episod_num)+'/' if episod_num != None else self.buffer_path
     
-    def load_buffer(self):
-        self.normal_observation = np.loadtxt(self.buffer_path+'normal_observation.txt').reshape(self.normal_observation.shape)
-        self.normal_new_observation = np.loadtxt(self.buffer_path+'normal_new_observation.txt').reshape(self.normal_new_observation.shape)
-        self.normal_action = np.loadtxt(self.buffer_path+'normal_action.txt').reshape(self.normal_action.shape)
-        self.normal_reward = np.loadtxt(self.buffer_path+'normal_reward.txt').reshape(self.normal_reward.shape)
-        self.normal_done = np.array(np.loadtxt(self.buffer_path+'normal_done.txt'), dtype=bool)
-        self.normal_weights = np.loadtxt(self.buffer_path+'normal_weights.txt')
-        self._normal_transitions_stored = int(np.loadtxt(self.buffer_path+'tm.txt')[0])
-        self.max_weight = np.loadtxt(self.buffer_path+'tm.txt')[1]
+        #bpath = self.buffer_path + str(episod_num) + '/'
+        if not path.exists(bpath):
+            makedirs(bpath)
+        np.savetxt(bpath+'normal_observation.txt', self.normal_observation.reshape(-1))
+        np.savetxt(bpath+'normal_new_observation.txt', self.normal_new_observation.reshape(-1))
+        np.savetxt(bpath+'normal_action.txt', self.normal_action.reshape(-1))
+        np.savetxt(bpath+'normal_reward.txt', self.normal_reward.reshape(-1))
+        np.savetxt(bpath+'normal_done.txt', self.normal_done)
+        np.savetxt(bpath+'normal_weights.txt', self.normal_weights)
+        np.savetxt(bpath+'tm.txt', np.array([self._normal_transitions_stored, self.max_weight]))
+    
+    def load_buffer(
+        self,
+        episod_num: Optional[int]=None,
+    ):
+        bpath = self.buffer_path+str(episod_num)+'/' if episod_num != None else self.buffer_path
+    
+        #bpath = self.buffer_path + str(episod_num) + '/'
+        self.normal_observation = np.loadtxt(bpath+'normal_observation.txt').reshape(self.normal_observation.shape)
+        self.normal_new_observation = np.loadtxt(bpath+'normal_new_observation.txt').reshape(self.normal_new_observation.shape)
+        self.normal_action = np.loadtxt(bpath+'normal_action.txt').reshape(self.normal_action.shape)
+        self.normal_reward = np.loadtxt(bpath+'normal_reward.txt').reshape(self.normal_reward.shape)
+        self.normal_done = np.array(np.loadtxt(bpath+'normal_done.txt'), dtype=bool)
+        self.normal_weights = np.loadtxt(bpath+'normal_weights.txt')
+        self._normal_transitions_stored = int(np.loadtxt(bpath+'tm.txt')[0])
+        self.max_weight = np.loadtxt(bpath+'tm.txt')[1]
     
     def get_extra_memory (
         self,
