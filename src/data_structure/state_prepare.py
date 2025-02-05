@@ -162,6 +162,16 @@ class StatePrepare:
         
         return self.stateCaps, self.stateWeightValues
 
+    def getNormalObservation (self) -> np.ndarray:
+        self.getObservation1()
+        normalizedStateCaps = self.stateCaps / self.info['CAP_HIGH']
+        
+        normalizedStateWeightValues = np.append(
+            self.stateWeightValues[:,:-self.values.shape[1]]/self.info['CAP_HIGH'],
+            self.stateWeightValues[:,-self.values.shape[1]:]/self.info['VALUE_HIGH'], 
+            axis=1)
+        return normalizedStateCaps, normalizedStateWeightValues
+    
     def getObservation2 (self) -> np.ndarray:
         self.pad_len = self.instanceObsSize - len(self.remainInstanceWeights)
         sw = self.remainInstanceWeights[:self.instanceObsSize]
