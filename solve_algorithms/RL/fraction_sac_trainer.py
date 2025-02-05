@@ -10,7 +10,7 @@ from torch.optim import AdamW, SGD, RMSprop
 from torch.distributions.categorical import Categorical
 
 from .src.base_trainer import BaseTrainer
-from configs.fraction_sac_configs import FractionSACConfig
+from configs.sac_configs import SACConfig
 
 
 class FractionSACTrainer(BaseTrainer):
@@ -27,7 +27,7 @@ class FractionSACTrainer(BaseTrainer):
         info: List,
         save_path: str,
         main_batch_size: int,
-        config: FractionSACConfig,
+        config: SACConfig,
         actor_model: torch.nn.Module,
         critic_local1: torch.nn.Module,
         critic_local2: torch.nn.Module,
